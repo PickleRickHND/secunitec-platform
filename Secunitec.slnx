@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/Secunitec.BuildingBlocks.AspNetCore/Secunitec.BuildingBlocks.AspNetCore.csproj" />
+    <Project Path="src/BuildingBlocks/Secunitec.BuildingBlocks/Secunitec.BuildingBlocks.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Secunitec.BuildingBlocks.Tests/Secunitec.BuildingBlocks.Tests.csproj" />
+  </Folder>
+</Solution>

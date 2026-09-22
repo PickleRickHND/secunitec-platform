@@ -5,8 +5,8 @@
 | Curso | Arquitectura de Sistemas Informáticos, UNITEC, Q3-2026 (Prof. Kevin Fúnez) |
 | Proyecto | Arquitectura y Ciberseguridad: Auditoría, Diseño y Resiliencia para Secunitec Corp. |
 | Repositorio | `PickleRickHND/secunitec-platform` (público, monorepo) |
-| Estado | Pendiente de aprobación del equipo |
-| Última actualización | 2026-09-21 |
+| Estado | Aprobado; Etapa 1 en curso (ver §7.1) |
+| Última actualización | 2026-09-22 |
 
 Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué decidimos, cómo se estructura el repo y en qué orden se construye. Cada requisito tiene un ID (`R01`...) que se referencia desde el código, los diagramas y las pruebas para demostrar la "coherencia estricta" que exige el criterio de evaluación (a).
 
@@ -227,12 +227,15 @@ secunitec-platform/
 ├── docker-compose.yml                     # todo el sistema (R11, R12)
 ├── docker-compose.observability.yml       # stack de Fase 4 (perfil opcional)
 ├── .env.example                           # variables sin valores reales
-├── global.json                            # SDK 10.0.400
-├── Directory.Build.props                  # nullable, warnings como errores, analizadores
+├── .editorconfig                          # estilo C# (file-scoped namespaces, naming, LF)
+├── global.json                            # SDK 10.0.400; dotnet test en modo Microsoft.Testing.Platform
+├── Directory.Build.props                  # nullable, warnings como errores, analizadores, EnforceCodeStyleInBuild
 ├── Directory.Packages.props               # versiones centralizadas de NuGet
 ├── Secunitec.slnx
 ├── src/
-│   ├── BuildingBlocks/Secunitec.BuildingBlocks/   # headers de seguridad, auditoría Mongo, OTel, correlation id
+│   ├── BuildingBlocks/
+│   │   ├── Secunitec.BuildingBlocks/          # puro (sin ASP.NET): claims, roles, políticas, ICurrentUser, correlation id
+│   │   └── Secunitec.BuildingBlocks.AspNetCore/  # middlewares (headers, correlation), ProblemDetails, autorización R04, Kestrel R06; luego auditoría Mongo y OTel
 │   ├── Gateway/Secunitec.Gateway/
 │   ├── Identity/Secunitec.Identity/
 │   ├── Billing/
@@ -242,6 +245,8 @@ secunitec-platform/
 │   │   └── Secunitec.Billing.Api/
 │   └── Frontend/                          # React 19 + Vite 8 + TypeScript
 ├── tests/
+│   ├── Directory.Build.props              # IsTestProject, runner MTP, global using Xunit
+│   ├── Secunitec.BuildingBlocks.Tests/    # xUnit v3: contrato del token, políticas, middlewares, Kestrel
 │   ├── Secunitec.Billing.Domain.Tests/    # xUnit v3: reglas de negocio
 │   ├── Secunitec.Billing.Api.Tests/       # integración con Testcontainers (Postgres + Mongo)
 │   ├── Secunitec.Identity.Tests/          # discovery, token, lockout
@@ -294,7 +299,8 @@ secunitec-platform/
 | RedisRateLimiting (comunitario; verificar mantenimiento en H4) | 1.2.1 |
 | OpenTelemetry.* | 1.19.x |
 | Microsoft.AspNetCore.Authentication.JwtBearer | 10.0.12 |
-| xunit.v3 | 4.0.1 |
+| xunit.v3 / xunit.runner.visualstudio | 4.0.1 / 4.0.0 (modo Microsoft.Testing.Platform; sin `Microsoft.NET.Test.Sdk`) |
+| Microsoft.AspNetCore.TestHost | 10.0.12 |
 | Testcontainers.PostgreSql | 4.15.0 |
 | React / Vite / @vitejs/plugin-react | 19.3 / 8.3 / 6.1 |
 | react-router-dom / oidc-client-ts | 7.18 / 3.5 |
@@ -322,6 +328,30 @@ El orden minimiza dependencias: primero infraestructura, luego el emisor de toke
 | **H9** Fase 3: estrés y USE | Planes JMeter (baseline 50 usuarios, rampa 0 → 500, spike 1000) con setup thread group que obtiene token; `run-jmeter.sh` y `capture-docker-stats.sh`; ejecución real; tabla USE por recurso (CPU, memoria, red, conexiones DB, thread pool); gráficas 429 vs 500; `docs/05` | H8 | Reporte HTML de JMeter + CSV de `docker stats` + dashboards; 5xx = 0 durante saturación |
 | **H10** Entregables | Informe técnico DOCX con la estructura del enunciado (portada, índices, objetivos, introducción, marco teórico, desarrollo con evidencias, conclusiones, recomendaciones, bibliografía); presentación PPTX de 30 min; README final; tag `v1.0` | Todo | Revisión final del equipo |
 
+### 7.1 Etapas y pistas del equipo
+
+El equipo ejecuta los hitos anteriores en cinco etapas y tres pistas paralelas (A, B, C). La Etapa 1 no requiere Docker.
+
+| Etapa | Contenido | Hito(s) | Pista |
+|---|---|---|---|
+| **1.1** | Proyecto base: solución .NET, reglas comunes de build, bloques comunes y contrato del token (rol, empresa). CI base | H1 (parte sin Docker) + contrato compartido de H2/H3 | A |
+| **1.2** | Reglas de facturación (`Billing.Domain`): factura, líneas, ISV, correlativo por CAI, estados. Pruebas unitarias | H3 (Domain) | B |
+| **1.3** | Acciones de facturación (`Billing.Application`): crear, emitir, anular, listar; clientes y obligados; permisos por rol. Probado con datos falsos | H3 (Application) | B |
+| **2.1** | Postgres, Mongo y Redis en contenedores con redes aisladas | H1 (compose) | B |
+| **2.2** | `Billing.Infrastructure` + `Billing.Api`: Postgres, auditoría Mongo, caché Redis, endpoints `/api/billing/...`. Probado con token de prueba | H3 (Infrastructure, Api) | B |
+| **3.1** | Identity: registro, login y emisión de JWT con OAuth 2.0 / OIDC | H2 | A |
+| **3.2** | Gateway: única entrada, validación de token, rate limiting 429, supresión de cabeceras | H4 | A |
+| **4.1** | Frontend: login, facturas y panel de bloqueos 429 en vivo | H5 | C |
+| **4.2** | Endurecer y verificar: contenedores non-root con límites; script de verificación con evidencia | H6 | A |
+| **5.1** | Fase 1: STRIDE, SecurUML, mapeo OWASP, trazabilidad | H7 | Todos |
+| **5.2** | Fase 4: OpenTelemetry y Grafana | H8 | C |
+| **5.3** | Fase 3: JMeter, `docker stats`, Método USE | H9 | C |
+| **5.4** | Informe técnico y presentación ejecutiva | H10 | Todos |
+
+#### Contrato del token (cerrado en 1.1)
+
+Claims crudos, sin mapeo a `ClaimTypes.*`: `sub` (Guid), `role` (multivalor: `Admin`, `Facturador`, `Auditor`, `Cliente`), `tenant_id` (Guid, **obligatorio en todo token de usuario, incluido Admin**), `cliente_id` (Guid, solo con rol `Cliente`), `client_id` (aplicaciones OAuth, p. ej. `jmeter-load`), `aud` = `secunitec-billing`. Constantes en `src/BuildingBlocks/Secunitec.BuildingBlocks/Security/`; políticas `secunitec:*` con su matriz rol → política en `SecunitecPolicies.RolesByPolicy`; `FallbackPolicy` = autenticado con `tenant_id` (R04). Si más adelante hace falta un administrador de plataforma cross-tenant, se agrega como rol aparte sin cambiar este contrato.
+
 ---
 
 ## 8. Estrategia de pruebas
@@ -341,10 +371,11 @@ El orden minimiza dependencias: primero infraestructura, luego el emisor de toke
 ## 9. Convenciones
 
 - Commits: Conventional Commits (`feat(gateway): ...`, `docs(stride): ...`). Sin atribución a herramientas.
-- Ramas: `feature/hN-nombre` por hito; PR a `main` con CI verde; `main` protegida.
+- Ramas: `feature/<etapa>-<nombre>` (ej. `feature/1.1-proyecto-base`); PR a `main` con CI verde; `main` protegida.
 - Código: identificadores en inglés, comentarios y documentación en español. `Nullable` y `TreatWarningsAsErrors` activados. DTOs como `record`.
 - Secretos: solo en `.env` (git-ignored); `.env.example` con placeholders. `gitleaks git --staged` antes de cada commit.
 - Cada control de seguridad en código lleva un comentario con su ID (`// R06: ...`, `// T-03: ...`) para la trazabilidad.
+- Tests: xUnit v3 en modo Microsoft.Testing.Platform (`global.json` → `test.runner`); nombres `Metodo_Escenario_Resultado`; `TestContext.Current.CancellationToken` en llamadas async.
 
 ---
 
