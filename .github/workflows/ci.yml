@@ -1,0 +1,62 @@
+# CI base (Etapa 1.1): build + tests .NET y escaneo de secretos.
+# Front, `docker compose config` y auditoría de dependencias se agregan en las etapas 2.1, 4.1 y 4.2.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  CI: true
+
+jobs:
+  dotnet:
+    name: .NET build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Secunitec.slnx
+
+      - name: Build (warnings como errores)
+        run: dotnet build Secunitec.slnx -c Release --no-restore
+
+      - name: Formato
+        run: dotnet format Secunitec.slnx --verify-no-changes --no-restore
+
+      - name: Test
+        run: dotnet test Secunitec.slnx -c Release --no-build --results-directory TestResults -- --report-xunit-trx
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: test-results
+          path: TestResults
+          if-no-files-found: ignore
+
+  gitleaks:
+    name: Secretos (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
