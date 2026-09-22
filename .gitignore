@@ -1,0 +1,39 @@
+# Secretos y entorno
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+artifacts/
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+coverage/
+playwright-report/
+test-results/
+
+# JMeter
+tests/jmeter/results/
+*.jtl
+jmeter.log
+
+# Docker / datos locales
+.docker-data/
+**/data/
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
