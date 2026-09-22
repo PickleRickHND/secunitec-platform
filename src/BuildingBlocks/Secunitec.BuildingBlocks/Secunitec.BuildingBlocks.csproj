@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Bloque puro (sin ASP.NET Core): contrato del token, roles, políticas e ICurrentUser.
+       Lo referencian Billing.Application, Billing.Api, Identity y Gateway. -->
+  <PropertyGroup>
+    <RootNamespace>Secunitec.BuildingBlocks</RootNamespace>
+  </PropertyGroup>
+</Project>
