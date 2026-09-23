@@ -25,7 +25,7 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | Flujo OAuth del SPA | Authorization Code + PKCE (`oidc-client-ts`) | Password grant (ROPC) | Es el flujo recomendado por el OAuth 2.0 Security BCP (RFC 9700); ROPC está desaconsejado |
 | Servicio a servicio / carga | Client Credentials (cliente confidencial `jmeter-load`) | Token hardcodeado | JMeter obtiene su token de forma estándar en un setup thread group |
 | Fase 4 (innovación) | OpenTelemetry Collector + Prometheus + Tempo + Loki + Grafana + cAdvisor | mTLS, WAF Coraza, service mesh | Refuerza la Fase 3 con dashboards USE en vivo; muy demostrable ante el comité. mTLS queda como extensión opcional si sobra tiempo |
-| Imágenes runtime .NET | `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled` (distroless, non-root) | `aspnet:10.0-alpine` | Menor superficie de ataque, sin shell ni gestor de paquetes |
+| Imágenes runtime .NET | `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra` (distroless, non-root) | `aspnet:10.0-alpine` | Incluye tzdata para calcular la fecha de emisión en `America/Tegucigalpa`; sin shell ni gestor de paquetes |
 | Idioma | Documentación y comentarios en español; identificadores de código en inglés (convención .NET / React) | | |
 
 ---
@@ -305,7 +305,7 @@ secunitec-platform/
 | React / Vite / @vitejs/plugin-react | 19.3 / 8.3 / 6.1 |
 | react-router-dom / oidc-client-ts | 7.18 / 3.5 |
 | Vitest / @playwright/test | 5.0 / 1.63 |
-| Imágenes | `postgres:17-alpine`, `mongo:8`, `redis:7-alpine`, `nginxinc/nginx-unprivileged:alpine`, `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`, `otel/opentelemetry-collector-contrib`, `prom/prometheus`, `grafana/tempo`, `grafana/loki`, `grafana/grafana`, `gcr.io/cadvisor/cadvisor` |
+| Imágenes | `postgres:17-alpine`, `mongo:8`, `redis:7-alpine`, `nginxinc/nginx-unprivileged:alpine`, `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra`, `otel/opentelemetry-collector-contrib`, `prom/prometheus`, `grafana/tempo`, `grafana/loki`, `grafana/grafana`, `gcr.io/cadvisor/cadvisor` |
 | Herramientas locales | Docker 29 + Compose v5.5, JMeter (Homebrew) + Java 23, Node 22 solo para desarrollo del front (el compose lo construye en multi-stage) |
 
 ---
