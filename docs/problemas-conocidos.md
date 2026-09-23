@@ -6,6 +6,10 @@ Procedimientos verificados para problemas del entorno, no del código. Cada entr
 |---|---|---|
 | 1 | `mongo` queda en `Exited (1)` con "Linux kernel versions 6.19 and newer..." | `MONGO_GLIBC_TUNABLES=glibc.pthread.rseq=1` en `.env` |
 | 2 | El job "Secretos (gitleaks)" falla por un valor `CAMBIAR_...` de `.env.example` | Placeholder con formato `CAMBIAR_[A-Z0-9_]+`; ya exceptuado en `.gitleaks.toml` |
+| 3 | El gateway no arranca o el navegador rechaza `https://localhost:8080` | `scripts/dev-cert.sh` (o `.ps1`) y `dotnet dev-certs https --trust` |
+| 4 | La respuesta no trae `Strict-Transport-Security` | Es a propósito en `localhost`; se envía con cualquier otro host |
+| 5 | Identity no escribe auditoría o no arranca por el usuario de Mongo | `docker compose down -v` (borra los datos de prueba) o crear el usuario a mano |
+| 6 | Tras reiniciar Identity, las sesiones y los refresh tokens dejan de valer | Esperado en Development (llaves efímeras): volver a iniciar sesión |
 
 ---
 
@@ -88,3 +92,66 @@ docker run --rm -v "$PWD":/repo:ro zricethezav/gitleaks:v8.24.3 detect --source 
 ```
 
 Debe terminar en `no leaks found`. Antes de cada commit sigue valiendo `gitleaks git --staged --no-banner .`, que lee el mismo `.gitleaks.toml`.
+
+---
+
+## 3. Certificado de desarrollo del gateway (TLS, TB0)
+
+**Síntoma.** El gateway se reinicia con un error de Kestrel que no encuentra `/https/gateway.pem`. O bien el navegador o `curl` rechazan `https://localhost:8080` porque el certificado no es de confianza.
+
+**Causa.** El gateway sirve HTTPS con el certificado de desarrollo de .NET, que no se versiona (`infra/certs` está en `.gitignore`); cada integrante lo genera en su máquina.
+
+**Solución.**
+
+```bash
+scripts/dev-cert.sh                  # Windows: powershell -File scripts/dev-cert.ps1
+dotnet dev-certs https --trust       # una vez, para que el navegador confíe en él
+```
+
+En macOS, el export pide permiso al llavero para leer la clave privada: hay que aceptar el diálogo. `curl` no usa el llavero; a `curl` y a `scripts/verify-hardening.sh` se les pasa el certificado explícitamente (`--cacert infra/certs/gateway.pem`).
+
+**Comprobación.** `curl --cacert infra/certs/gateway.pem https://localhost:8080/health` responde 200.
+
+---
+
+## 4. HSTS no aparece en `localhost`
+
+**Síntoma.** `scripts/verify-hardening.sh` informa "HSTS no se envía para localhost".
+
+**Causa.** Es a propósito. `UseHsts()` excluye `localhost`, `127.0.0.1` y `[::1]`: HSTS vale para todo el host, no para un puerto. Si el navegador lo guardara para `localhost`, forzaría HTTPS también en el SPA (`http://localhost:3000`) y en cualquier otro proyecto local.
+
+**Comprobación.** Con cualquier otro host (`SECUNITEC_PUBLIC_URL` distinto de `localhost`), la respuesta HTTPS trae `Strict-Transport-Security: max-age=15552000`.
+
+---
+
+## 5. Usuarios de Mongo que no existen en un volumen viejo
+
+**Síntoma.** Identity o Billing registran `No se pudo registrar el evento de auditoría` con un error de autenticación contra Mongo.
+
+**Causa.** Los scripts de `infra/mongo/init` (usuarios `billing_audit` e `identity_audit`, índices y roles) solo corren cuando el volumen `mongo_data` está vacío. Un volumen creado antes de la etapa 3.1 no tiene `identity_audit`.
+
+**Solución.** Si se pueden perder los datos de prueba:
+
+```bash
+docker compose --profile security down -v
+docker compose --profile security up -d --build
+```
+
+Si no, crear el rol y el usuario a mano con el contenido de `infra/mongo/init/02-identity.js`:
+
+```bash
+docker compose exec mongo mongosh -u secunitec_bootstrap -p "$MONGO_ADMIN_PASSWORD" --authenticationDatabase admin
+```
+
+---
+
+## 6. Reiniciar Identity invalida las sesiones y los refresh tokens
+
+**Síntoma.** Después de `docker compose restart identity` (o de reconstruirlo), el SPA vuelve a pedir el login y los refresh tokens anteriores fallan.
+
+**Causa.** En Development, Identity firma y cifra con llaves efímeras en memoria, que no dependen del almacén de certificados de cada equipo. Al reiniciar se generan llaves nuevas.
+
+- Los tokens nuevos se aceptan como máximo 30 s después, porque Billing y el Gateway vuelven a pedir el JWKS ante un `kid` desconocido.
+- Los access tokens emitidos antes del reinicio pueden seguir aceptándose hasta su vencimiento (15 min).
+
+**Solución.** Iniciar sesión otra vez. Fuera de Development, Identity usa los certificados configurados en `Identity:SigningCertificate` e `Identity:EncryptionCertificate`, que no cambian al reiniciar.

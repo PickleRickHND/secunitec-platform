@@ -2,64 +2,69 @@
 
 ## Objetivo
 
-Implementar el proveedor de identidad de Secunitec para registro, login y emisión de tokens mediante OAuth 2.0 / OpenID Connect, manteniendo el contrato de claims definido en la etapa 1.1.
+Proveedor de identidad propio en .NET 10 que registra usuarios, autentica y emite JWT RS256 con OAuth 2.0 / OpenID Connect, con los claims del contrato de la etapa 1.1 (**R03**).
 
 ## Componentes
 
 | Componente | Implementación |
 |---|---|
-| Usuarios | ASP.NET Core Identity con `ApplicationUser` basado en GUID |
-| Persistencia | PostgreSQL `secunitec_identity` |
-| Protocolo | OpenIddict 7.7.1 |
-| Flujos | Authorization Code + PKCE, Refresh Token y Client Credentials |
-| Tokens | Access token JWT con claims del contrato Secunitec |
-| Discovery | `/.well-known/openid-configuration` |
-| Auditoría | MongoDB, eventos de registro/login y fallos de autenticación |
-| Contenedor | .NET 10 + imagen runtime chiseled |
+| Usuarios | ASP.NET Core Identity con `ApplicationUser` (GUID, `TenantId`, `ClienteId`) sobre Postgres `secunitec_identity` |
+| Protocolo | OpenIddict 7.7.1: discovery, JWKS, Authorization Code + PKCE, Refresh Token y Client Credentials |
+| Páginas | Razor Pages `/account/login` y `/account/register` (antiforgery automático) |
+| Tokens | Access token JWT RS256 sin cifrar, 15 min; refresh token 7 días |
+| Issuer | URL pública del gateway (`SECUNITEC_PUBLIC_URL`, por defecto `https://localhost:8080/`) |
+| Auditoría | Mongo `secunitec_audit.identity_events`, usuario con permisos solo de inserción y lectura |
+| Contenedor | .NET 10 sobre `aspnet:10.0-noble-chiseled-extra`, sin privilegios, solo en las redes `backend` y `data` |
 
 ## Controles de seguridad
 
-`R03`: Identity gestiona OAuth 2.0 / OIDC, emisión y validación de tokens.
-
-`R04`: la autorización es deny-by-default; únicamente los endpoints que el protocolo necesita exponer de forma anónima utilizan acceso anónimo explícito.
-
-`R08`: los eventos de autenticación se registran en Mongo como evidencia de auditoría.
-
-La política de contraseña exige longitud mínima de 12 caracteres, mayúsculas, minúsculas, dígitos y carácter no alfanumérico. El bloqueo se configura después de 5 intentos fallidos durante 15 minutos.
-
-Los tokens de acceso tienen vida corta y los refresh tokens tienen una vigencia mayor para permitir renovación sin volver a solicitar credenciales.
+- **R04:** deny-by-default (`FallbackPolicy` de 1.1). Solo son anónimas las páginas de cuenta, `/connect/*` y el discovery.
+- **A07:**
+  - Contraseñas de 12 caracteres o más, con mayúscula, minúscula, dígito y símbolo.
+  - Lockout de 15 minutos tras 5 intentos fallidos.
+  - El mismo mensaje para un correo inexistente que para una contraseña incorrecta.
+  - El registro de un correo que ya existe responde igual que un alta nueva.
+- **A01:** después del login solo se redirige a URLs locales (`Url.IsLocalUrl`, que rechaza `//host` y `/\host`).
+- **Cookies:** `__Host-Secunitec.Identity` y `__Host-Secunitec.Antiforgery`, con `Secure`, `HttpOnly` y `SameSite=Lax`. El TLS termina en el gateway e Identity ve el esquema https por `X-Forwarded-Proto`.
+- **TB1:** Identity acepta `X-Forwarded-For`, `X-Forwarded-Proto` y `X-Forwarded-Host` solo de redes privadas, y el host solo si coincide con el del issuer. Así la auditoría registra la IP real del cliente y el discovery anuncia URLs públicas.
+- **R08 / A09:**
+  - Se auditan en Mongo el login exitoso y el fallido, el bloqueo y el registro, con actor, tenant, IP, correlation id y resultado.
+  - La escritura nunca interrumpe el login: si Mongo falla, queda un warning en el log.
+- **Secretos:** Identity no arranca si la contraseña del admin, la de demo o el secreto de `jmeter-load` conservan el valor `CAMBIAR_` de `.env.example`.
+- **Llaves de firma:** efímeras en Development, que no tocan el almacén de certificados del equipo. Fuera de Development se exigen certificados PEM (`Identity:SigningCertificate:*` y `Identity:EncryptionCertificate:*`).
 
 ## Claims
 
-El `IdentityPrincipalFactory` mantiene los claims crudos del contrato:
+`IdentityPrincipalFactory` emite los claims crudos del contrato: `sub`, `role`, `tenant_id`, `cliente_id` (solo con el rol Cliente), `client_id` y `aud = secunitec-billing`.
 
-`sub`, `role`, `tenant_id`, `cliente_id` y `client_id`.
+- **Usuarios:** `sub` es el GUID del usuario.
+- **Aplicaciones (client credentials):** `sub` es el GUID de la aplicación en OpenIddict. El contrato exige un GUID y Billing lo registra como actor de cada escritura.
 
-Para Billing se establece la audiencia `secunitec-billing`.
+## Clientes OAuth y datos iniciales
 
-## Clientes OAuth
+| Cliente | Tipo | Uso |
+|---|---|---|
+| `spa-secunitec` | Público, PKCE obligatorio | SPA de la etapa 4.1 (`redirect_uri` `http://localhost:3000/auth/callback`) |
+| `jmeter-load` | Confidencial | Client credentials para las pruebas de carga; rol Facturador en el tenant de ejemplo |
 
-Se registran:
+El consentimiento es implícito: ambos son clientes propios (decisión registrada en `docs/PLAN.md`).
 
-- `spa-secunitec`: cliente público para Authorization Code + PKCE.
-- `jmeter-load`: cliente confidencial para Client Credentials y pruebas de carga.
+Datos iniciales:
+- los 4 roles y el administrador;
+- si se define `IDENTITY_SEED_DEMO_PASSWORD`, `facturador@`, `auditor@` y `cliente@secunitec.local`, este último con el `cliente_id` que Billing siembra en Development.
 
-## Migraciones
+Un usuario que se registra por su cuenta queda **sin rol**: Cliente exige un `cliente_id` que asigna un Admin.
 
-La base de datos de Identity se versiona mediante EF Core. Se incluye:
+## Pruebas
 
-- `IdentityInitialCreate`
-- `ApplicationDbContextModelSnapshot`
-- `ApplicationDbContextFactory` para operaciones de diseño y generación de migraciones.
+`tests/Secunitec.Identity.Tests` (WebApplicationFactory y Testcontainers con Postgres 17 y Mongo 8) cubre:
+- discovery 200 con endpoints públicos;
+- client credentials con los claims del contrato;
+- login fallido auditado con IP y correlation id;
+- lockout al sexto intento (423), auditado;
+- cookie `__Host-` con `Secure`;
+- redirecciones solo locales;
+- 400 sin token antiforgery;
+- registro duplicado sin enumeración y sin rol.
 
-La migración generada contiene una supresión local de diagnósticos de analizadores que no cambian el comportamiento de la migración.
-
-## Validación realizada
-
-- `dotnet build Secunitec.slnx -c Release --no-restore`: correcto.
-- `dotnet test Secunitec.slnx -c Release --no-restore`: 72 pruebas correctas.
-- `docker compose --profile security config --quiet`: correcto.
-
-## Pendiente antes de considerar H2/H3 completamente cerrados
-
-Todavía debe ejecutarse la prueba de integración real del compose para comprobar discovery, Client Credentials, login/lockout y auditoría de Identity contra los contenedores reales.
+Sin Docker, estos tests se saltan en local; en CI (`CI=true`) fallan.

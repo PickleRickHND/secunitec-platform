@@ -2,76 +2,65 @@
 
 ## Objetivo
 
-Convertir el Gateway en el único punto de entrada publicado y proteger el acceso a Billing mediante validación JWT, rate limiting y hardening HTTP.
+Único punto de entrada publicado (**R01**). Enruta hacia Identity y Billing, rechaza el tráfico anónimo fuera del protocolo OIDC (**R04**), corta las ráfagas con 429 (**R02**) y no revela tecnología (**R06**).
 
 ## Componentes
 
 | Componente | Implementación |
 |---|---|
-| Gateway | YARP sobre .NET 10 |
-| Entrada publicada | `127.0.0.1:8080` |
-| Identity upstream | `/connect/*`, `/account/*`, discovery |
-| Billing upstream | `/api/billing/*` |
-| Autenticación | JWT Bearer contra Identity |
-| Rate limiting | Redis |
-| Correlation | ID propagado hacia los servicios |
-| Hardening | Supresión de cabeceras y límites de petición |
+| Proxy | YARP 2.3 sobre .NET 10 |
+| Entrada | `https://localhost:8080`, publicada solo en `127.0.0.1`. TLS con el certificado de desarrollo (TB0) |
+| Rutas anónimas | `/connect/token` (política `token-endpoint`); `/connect/*`, `/.well-known/*` y `/account/*` (`anon-by-ip`) |
+| Rutas protegidas | `/api/billing/*` (política `default`: autenticado y con `tenant_id`; rate limit `user-by-sub`) |
+| Autenticación | JwtBearer contra Identity: issuer público, JWKS descargado por la red interna |
+| Rate limiting | `Microsoft.AspNetCore.RateLimiting` con contadores en Redis (`RedisRateLimiting`), con respaldo en memoria |
+| Redes | `edge` (publicada), `backend` (Identity y Billing) y `data` (Redis) |
 
-## Enrutamiento
+## Pipeline
 
-El Gateway expone las rutas necesarias para el flujo OIDC y Billing. Billing deja de publicar su puerto directamente al host dentro del perfil `security`.
+`UseSecunitecDefaults` (ProblemDetails, correlation id, cabeceras) → `UseHsts` → `UseAuthentication` → `UseRateLimiter` → `UseAuthorization` → `MapReverseProxy`.
 
-La topología queda:
+El rate limiting va entre la autenticación y la autorización por dos motivos:
+- conoce el `sub` y puede particionar por usuario;
+- un token inválido cae a la partición por IP y también recibe 429 antes que el 401.
 
-`cliente → Gateway → Identity/Billing`
+## Rate limiting (R02)
 
-Las redes `backend` y `data` siguen aisladas y el único puerto externo de esta etapa es el del Gateway.
+| Política | Partición | Límite por defecto |
+|---|---|---|
+| `token-endpoint` | IP | 5 por minuto |
+| `anon-by-ip` | IP | 60 por minuto |
+| `user-by-sub` | `sub` (o `client_id`); sin token válido, la IP | 60 por minuto |
 
-## Rate limiting
-
-`R02` se implementa mediante contadores en Redis.
-
-Reglas principales:
-
-- Endpoint de token: 5 solicitudes por minuto por IP.
-- Tráfico autenticado: 60 solicitudes por minuto por `sub`; cuando no existe identidad, se utiliza la partición por IP.
-- Exceso de límite: HTTP `429`.
-- La respuesta incluye `Retry-After` y JSON con `error = rate_limited`.
-
-El rechazo ocurre en Gateway antes de alcanzar Billing, evitando consumir recursos internos durante una ráfaga.
+- Al pasar el límite, el gateway responde `429` con `Retry-After` y `{"error":"rate_limited","retry_after":N}`, y la petición no llega al servicio interno.
+- Los límites se configuran en la sección `RateLimiting`, útil para las pruebas de carga de la Fase 3.
+- Si Redis no responde, se cuenta en memoria por instancia (PLAN §10) y se registra un warning cada 30 s como máximo. Nunca se responde 500.
 
 ## Validación JWT
 
-El Gateway valida:
+El gateway valida firma, `iss`, `aud = secunitec-billing` y vigencia con el helper común `UseSecunitecIdentity` de BuildingBlocks. Billing repite la misma validación, como defensa en profundidad.
 
-- emisor (`iss`);
-- audiencia (`aud`);
-- firma mediante discovery/JWKS de Identity;
-- vigencia del token.
-
-Billing mantiene la validación propia para defensa en profundidad.
+- **Issuer y JWKS:** el issuer es la URL pública. El JWKS se descarga de `http://identity:8080` mediante `InternalAuthorityHandler`, que reescribe la URL y agrega `X-Forwarded-Host` y `X-Forwarded-Proto` públicos.
+- **Rotación de llaves:** ante un `kid` desconocido, por ejemplo tras reiniciar Identity, el JWKS se vuelve a pedir; el intervalo mínimo entre refrescos es de 30 s.
 
 ## Hardening
 
-`R06` se aplica eliminando cabeceras de fingerprinting como `Server` y `X-Powered-By`.
+- **R06:** sin `Server` ni `X-Powered-By`. Kestrel no los emite y los transforms de YARP los quitan de las respuestas reenviadas.
+- **Cabeceras:** `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` y CSP.
+- **HSTS:** en HTTPS, salvo en localhost; ver `docs/problemas-conocidos.md`.
+- **Límites:** de body y de cabeceras en Kestrel (1.1), y timeout de 30 s por cluster.
+- **Correlation id:** el `X-Correlation-Id` validado o generado viaja a Identity y Billing.
+- **`X-Forwarded-*`:** YARP los reemplaza siempre, así que los que manda el cliente se descartan.
 
-El Gateway también conserva los controles comunes de correlation ID, ProblemDetails, límites de cuerpo y timeouts establecidos por el proyecto.
+## Pruebas
 
-## Validación realizada
+`tests/Secunitec.Gateway.Tests` no necesita Docker: usa un Redis inalcanzable, que fuerza el respaldo en memoria, y un backend falso en Kestrel. Cubre:
+- 401 sin token y 403 sin `tenant_id`;
+- rutas OIDC anónimas;
+- 429 con `Retry-After` y JSON en `/connect/token` y por `sub`, sin llegar al servicio;
+- tokens inválidos limitados por IP;
+- cabeceras;
+- correlation id propagado;
+- `/health` con Redis caído.
 
-- `dotnet build Secunitec.slnx -c Release --no-restore`: correcto.
-- `dotnet test Secunitec.slnx -c Release --no-restore`: 72 pruebas correctas.
-- `docker compose --profile security config --quiet`: correcto.
-
-## Pendiente antes de considerar H4 completamente cerrado
-
-Debe probarse con el compose real:
-
-1. `401` sin JWT.
-2. Acceso correcto con JWT válido.
-3. `429` después de superar el límite.
-4. Presencia correcta de `Retry-After`.
-5. Ausencia de `Server` / `X-Powered-By`.
-6. Proxy correcto hacia Identity y Billing.
-
-Las pruebas específicas de Gateway (`401`, `429`, headers) previstas en el plan todavía no forman parte de los 72 tests existentes.
+`scripts/verify-hardening.sh` verifica los mismos controles contra el compose real, además de las redes internas y que solo el gateway publique puertos.

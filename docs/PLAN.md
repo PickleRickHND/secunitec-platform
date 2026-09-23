@@ -5,7 +5,7 @@
 | Curso | Arquitectura de Sistemas Informáticos, UNITEC, Q3-2026 (Prof. Kevin Fúnez) |
 | Proyecto | Arquitectura y Ciberseguridad: Auditoría, Diseño y Resiliencia para Secunitec Corp. |
 | Repositorio | `PickleRickHND/secunitec-platform` (público, monorepo) |
-| Estado | Aprobado; 1.1 completo, 1.2 a 2.2 parciales (pendientes en el README) |
+| Estado | Aprobado; 1.1, 3.1 y 3.2 completos; 1.2 a 2.2 parciales (pendientes en el README) |
 | Última actualización | 2026-09-22 |
 
 Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué decidimos, cómo se estructura el repo y en qué orden se construye. Cada requisito tiene un ID (`R01`...) que se referencia desde el código, los diagramas y las pruebas para demostrar la "coherencia estricta" que exige el criterio de evaluación (a).
@@ -27,6 +27,8 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | Fase 4 (innovación) | OpenTelemetry Collector + Prometheus + Tempo + Loki + Grafana + cAdvisor | mTLS, WAF Coraza, service mesh | Refuerza la Fase 3 con dashboards USE en vivo; muy demostrable ante el comité. mTLS queda como extensión opcional si sobra tiempo |
 | Imágenes runtime .NET | `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra` (distroless, non-root) | `aspnet:10.0-alpine` | Incluye tzdata para calcular la fecha de emisión en `America/Tegucigalpa`; sin shell ni gestor de paquetes |
 | Idioma | Documentación y comentarios en español; identificadores de código en inglés (convención .NET / React) | | |
+| Emisor de los tokens (3.1) | Issuer = URL pública del gateway (`SECUNITEC_PUBLIC_URL`); Billing y el Gateway descargan el JWKS por la red interna (`InternalAuthorityHandler`) | Issuer interno `http://identity:8080` | Con el issuer interno el discovery anunciaba endpoints que el navegador no alcanza y el SPA no podía completar el Authorization Code |
+| Consentimiento OIDC (3.1) | Implícito para los clientes propios (`spa-secunitec`, `jmeter-load`); login y registro en Razor Pages | Pantalla de consentimiento explícito | Ambos clientes son del mismo sistema: el consentimiento solo agregaría un clic a cada login |
 
 ---
 
@@ -168,7 +170,7 @@ sequenceDiagram
 
 | ID | Frontera | Qué la cruza | Control en la frontera |
 |---|---|---|---|
-| TB0 | Internet → edge | Navegador, JMeter | TLS (dev cert) en gateway, rate limiting, validación JWT, headers de seguridad, límites de tamaño y timeouts |
+| TB0 | Internet → edge | Navegador, JMeter | TLS (dev cert) en gateway, rate limiting, validación JWT, headers de seguridad, límites de tamaño y timeouts. Implementado en 3.2: HTTPS en `https://localhost:8080` y HSTS fuera de `localhost` (ver `docs/problemas-conocidos.md`) |
 | TB1 | edge → backend | Solo el gateway | Red `internal`, JWT re-validado en cada microservicio, `X-Forwarded-*` controlados |
 | TB2 | backend → data | Identity y Billing | Red `internal`, credenciales distintas por servicio y por base, sin puertos publicados |
 | TB3 | servicios → observability | Exportadores OTLP | Red separada, Grafana con login, sin datos sensibles en trazas |
@@ -296,12 +298,13 @@ secunitec-platform/
 | MongoDB.Driver | 3.12.0 |
 | FluentValidation | 12.1.1 |
 | StackExchange.Redis | 3.3.0 |
-| RedisRateLimiting (comunitario; verificar mantenimiento en H4) | 1.2.1 |
+| RedisRateLimiting (comunitario; verificado en 3.2: soporta .NET 10 y su repo tuvo actividad en agosto de 2026) | 1.2.1 |
 | OpenTelemetry.* | 1.19.x |
 | Microsoft.AspNetCore.Authentication.JwtBearer | 10.0.12 |
 | xunit.v3 / xunit.runner.visualstudio | 4.0.1 / 4.0.0 (modo Microsoft.Testing.Platform; sin `Microsoft.NET.Test.Sdk`) |
 | Microsoft.AspNetCore.TestHost | 10.0.12 |
-| Testcontainers.PostgreSql | 4.15.0 |
+| Microsoft.AspNetCore.Mvc.Testing | 10.0.12 |
+| Testcontainers.PostgreSql / Testcontainers.MongoDb | 4.15.0 |
 | React / Vite / @vitejs/plugin-react | 19.3 / 8.3 / 6.1 |
 | react-router-dom / oidc-client-ts | 7.18 / 3.5 |
 | Vitest / @playwright/test | 5.0 / 1.63 |
@@ -352,6 +355,8 @@ El equipo ejecuta los hitos anteriores en cinco etapas y tres pistas paralelas (
 
 Claims crudos, sin mapeo a `ClaimTypes.*`: `sub` (Guid), `role` (multivalor: `Admin`, `Facturador`, `Auditor`, `Cliente`), `tenant_id` (Guid, **obligatorio en todo token de usuario, incluido Admin**), `cliente_id` (Guid, solo con rol `Cliente`), `client_id` (aplicaciones OAuth, p. ej. `jmeter-load`), `aud` = `secunitec-billing`. Constantes en `src/BuildingBlocks/Secunitec.BuildingBlocks/Security/`; políticas `secunitec:*` con su matriz rol → política en `SecunitecPolicies.RolesByPolicy`; `FallbackPolicy` = autenticado con `tenant_id` (R04). Si más adelante hace falta un administrador de plataforma cross-tenant, se agrega como rol aparte sin cambiar este contrato.
 
+Precisiones de 3.1: en los tokens de aplicación (client credentials) `sub` es el GUID de la aplicación en OpenIddict, así Billing puede registrar el actor de cada escritura. El `iss` es la URL pública del gateway, con barra final. Un usuario que se registra por su cuenta queda sin rol hasta que un Admin le asigna uno, porque Cliente exige `cliente_id`.
+
 ---
 
 ## 8. Estrategia de pruebas
@@ -386,7 +391,7 @@ Claims crudos, sin mapeo a `ClaimTypes.*`: `sub` (Guid), `role` (multivalor: `Ad
 | Docker Desktop apagado en la máquina de desarrollo (estado al 2026-09-21) | Encender antes de H1; documentar requisitos en README |
 | MongoDB 8 no arranca con kernels Linux 6.19 a 7.0.13 ([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)); Docker Desktop 4.92 trae 7.0.12 (estado al 2026-09-22) | Opcional, solo en las máquinas afectadas: `MONGO_GLIBC_TUNABLES=glibc.pthread.rseq=1` en `.env` (TCMalloc sin rseq, algo menos de rendimiento del asignador). Procedimiento en `docs/problemas-conocidos.md`; fallback: `mongo:7` |
 | Compatibilidad OpenIddict 7.7 con .NET 10 | Verificar changelog al iniciar H2; fallback a la última 6.x compatible |
-| `RedisRateLimiting` es un paquete comunitario | Verificar mantenimiento; fallback documentado: limiter en memoria (una sola instancia de gateway) |
+| `RedisRateLimiting` es un paquete comunitario | Verificado en 3.2. Si Redis falla, `ResilientRateLimiter` usa un limitador en memoria por instancia y registra un warning: 429 controlados, nunca 500 |
 | JMeter sale de una sola IP: un límite por IP bloquearía todo al instante | Particiones por `sub`/`client_id` cuando hay token; por IP solo para anónimos; el plan usa varios clientes y usuarios |
 | Difícil saturar en una laptop | `deploy.resources.limits` bajos para Billing (por ejemplo 0.5 CPU, 256 MB) para alcanzar saturación con cientos de hilos; documentar el porqué |
 | Tiempo del equipo | Reparto por hitos (sección 11) y PRs pequeños |
