@@ -14,8 +14,8 @@ Este README es el tablero del proyecto: el plan por etapas, qué está hecho y q
 | | 1.3 Acciones de facturación (`Billing.Application`) | B | **Parcial** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2)); ver [pendientes](#pendientes-de-12-a-22) |
 | 2 · Bases de datos (se enciende Docker) | 2.1 Postgres, Mongo y Redis en contenedores | B | **Parcial** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2)); ver [pendientes](#pendientes-de-12-a-22) |
 | | 2.2 Facturación conectada y expuesta (`Infrastructure` + `Api`) | B | **Parcial** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2)); ver [pendientes](#pendientes-de-12-a-22) |
-| 3 · Seguridad | 3.1 Identity (OAuth 2.0 / OIDC / JWT) | A | Pendiente |
-| | 3.2 Gateway (única entrada, 429, cabeceras) | A | Pendiente |
+| 3 · Seguridad | 3.1 Identity (OAuth 2.0 / OIDC / JWT) | A | **Implementado** (rama `feature/3.1-identity`) |
+| | 3.2 Gateway (única entrada, 429, cabeceras) | A | **Implementado** (rama `feature/3.1-identity`) |
 | 4 · Fachada | 4.1 Frontend (login, facturas, panel 429) | C | Pendiente |
 | | 4.2 Endurecer y verificar | A | Pendiente |
 | 5 · Evidencia e informe | 5.1 Amenazas (STRIDE, SecurUML, OWASP) | Todos | Pendiente |
@@ -32,8 +32,8 @@ Pistas: **A** = Identity, Gateway, hardening · **B** = Billing y bases de datos
 | Bloques comunes | Contrato del token (roles, `tenant_id`, políticas), cabeceras de seguridad, correlation id, ProblemDetails, hardening de Kestrel | `src/BuildingBlocks` | Completado |
 | Core de facturación | .NET 10, Clean Architecture (Domain / Application / Infrastructure / Api), EF Core + PostgreSQL | `src/Billing` | Parcial: flujo completo funcionando, faltan tests y funciones (1.2, 1.3, 2.2) |
 | Persistencia multi-modelo | PostgreSQL 17 (transaccional), MongoDB 8 (auditoría), Redis 7 (caché; contadores en etapa 3.2) | `infra/`, `docker-compose.yml` | Parcial: tres bases `healthy` en redes internas (2.1) |
-| Identity Provider | .NET 10 + OpenIddict (OAuth 2.0 / OIDC / JWT RS256) + ASP.NET Core Identity | `src/Identity` | Pendiente (3.1) |
-| API Gateway / Ingress Edge | YARP sobre .NET 10, rate limiting L7 con Redis, validación JWT, hardening de cabeceras | `src/Gateway` | Pendiente (3.2) |
+| Identity Provider | .NET 10 + OpenIddict (OAuth 2.0 / OIDC / JWT RS256) + ASP.NET Core Identity | `src/Identity` | **Implementado (3.1)** |
+| API Gateway / Ingress Edge | YARP sobre .NET 10, rate limiting L7 con Redis, validación JWT, hardening de cabeceras | `src/Gateway` | **Implementado (3.2)** |
 | Front-End | React 19 + Vite + TypeScript, SPA servida por nginx | `src/Frontend` | Pendiente (4.1) |
 | Observabilidad (Fase 4) | OpenTelemetry Collector, Prometheus, Tempo, Loki, Grafana, cAdvisor | `infra/`, `docker-compose.observability.yml` | Pendiente (5.2) |
 
