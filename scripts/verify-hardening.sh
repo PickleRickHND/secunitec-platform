@@ -114,15 +114,27 @@ check "R04: /api/billing sin token → 401" "[ $status = 401 ]"
 status=$(token_request)
 check "R03: token por client credentials 200" "[ $status = 200 ]"
 TOKEN=$(json "$TMP/t" "d['access_token']")
-status=$(http -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/billing/facturas")
-check "R01: Billing a través del gateway con token → 200" "[ $status = 200 ]"
-status=$(http -o "$TMP/o403" -w '%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-    -d '{}' "$BASE/api/billing/obligados")
-check "R04: rol Facturador en endpoint de Admin → 403" "[ $status = 403 ]"
-status=$(http -o "$TMP/audit403" -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/billing/auditoria")
-check "R04: rol Facturador en la auditoría → 403" "[ $status = 403 ]"
+# La partición de jmeter-load (60/min) puede venir gastada por otra herramienta (verify-observability, JMeter): ante un
+# 429 se espera el Retry-After una vez, como con /connect/token. El 429 en sí se verifica en la sección R02.
+billing_request() {
+    local status
+    for _ in 1 2; do
+        status=$(http -D "$TMP/bh" -o "$TMP/bb" -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$@")
+        if [ "$status" != 429 ]; then echo "$status"; return; fi
+        local wait_for; wait_for=$(header_in "$TMP/bh" Retry-After); wait_for=${wait_for:-60}
+        echo "INFO  partición de jmeter-load limitada: espero $((wait_for + 1)) s (Retry-After)" >&2
+        sleep $((wait_for + 1))
+    done
+    echo "$status"
+}
+status_facturas=$(billing_request "$BASE/api/billing/facturas")
+check "R01: Billing a través del gateway con token → 200" "[ $status_facturas = 200 ]"
+status_obligados=$(billing_request -X POST -H 'Content-Type: application/json' -d '{}' "$BASE/api/billing/obligados")
+check "R04: rol Facturador en endpoint de Admin → 403" "[ $status_obligados = 403 ]"
+status_auditoria=$(billing_request "$BASE/api/billing/auditoria")
+check "R04: rol Facturador en la auditoría → 403" "[ $status_auditoria = 403 ]"
 evidence "curl -s -o /dev/null -w '%{http_code}' .../api/billing/{facturas,obligados,auditoria}   # sin token, Facturador y Facturador" \
-    "401 (sin token), 200 (facturas), 403 (obligados), $status (auditoria)"
+    "401 (sin token), $status_facturas (facturas), $status_obligados (obligados), $status_auditoria (auditoria)"
 
 section "R09: CORS para el SPA"
 http -D "$TMP/pf" -o /dev/null -X OPTIONS "$BASE/api/billing/facturas" -H "Origin: $SPA" \
