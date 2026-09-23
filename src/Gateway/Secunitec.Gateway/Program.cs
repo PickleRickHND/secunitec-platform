@@ -1,15 +1,17 @@
-// R01: YARP concentra la entrada pÃºblica y enruta hacia Identity y Billing.
-// R02: el Gateway aplica rate limiting antes del proxy para proteger los servicios internos.
-// R06: el borde elimina cabeceras de fingerprinting y conserva el hardening comÃºn.
+// R01: YARP es la única entrada pública y enruta hacia Identity y Billing.
+// R02: rate limiting L7 con contadores en Redis antes de que la petición llegue a un servicio interno.
+// R04: solo las rutas del protocolo OIDC son anónimas; el resto exige un token con tenant_id.
+// R06: sin Server ni X-Powered-By, ni del gateway ni de las respuestas reenviadas.
 
-using System.Security.Claims;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Secunitec.BuildingBlocks.AspNetCore.Hosting;
+using Secunitec.BuildingBlocks.AspNetCore.Http;
+using Secunitec.BuildingBlocks.Http;
 using Secunitec.BuildingBlocks.Security;
 using Secunitec.Gateway;
 using StackExchange.Redis;
+using Yarp.ReverseProxy.Transforms;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -17,132 +19,60 @@ builder.ConfigureSecunitecKestrel();
 builder.Services.AddSecunitecDefaults();
 
 builder.Services
-    .AddAuthentication(
-        JwtBearerDefaults.AuthenticationScheme)
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.MapInboundClaims = false;
-        options.Authority =
-            builder.Configuration["Jwt:Authority"]
-            ?? throw new InvalidOperationException(
-                "Configure Jwt:Authority.");
+        options.Authority = builder.Configuration["Jwt:Authority"]
+            ?? throw new InvalidOperationException("Configure Jwt:Authority.");
         options.Audience = SecunitecAudiences.Billing;
-        options.RequireHttpsMetadata =
-            !builder.Environment.IsDevelopment();
-
-        options.TokenValidationParameters =
-            new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                NameClaimType = SecunitecClaims.Name,
-                RoleClaimType = SecunitecClaims.Role
-            };
+        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            NameClaimType = SecunitecClaims.Name,
+            RoleClaimType = SecunitecClaims.Role,
+        };
     });
 
-string redis =
-    builder.Configuration["Redis:ConnectionString"]
-    ?? throw new InvalidOperationException(
-        "Configure Redis:ConnectionString.");
-
-builder.Services.AddSingleton<IConnectionMultiplexer>(
-    _ => ConnectionMultiplexer.Connect(redis));
-
-builder.Services.AddSingleton<RedisRateLimiter>();
+// abortConnect=false: si Redis no está disponible al arrancar, el gateway arranca igual y limita en memoria.
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp => ConnectionMultiplexer.Connect(
+    sp.GetRequiredService<IConfiguration>()["Redis:ConnectionString"]
+        ?? throw new InvalidOperationException("Configure Redis:ConnectionString.")));
+builder.Services.AddSecunitecRateLimiting(builder.Configuration);
 
 builder.Services
     .AddReverseProxy()
-    .LoadFromConfig(
-        builder.Configuration.GetSection("ReverseProxy"));
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
+    .AddTransforms(context => context.AddRequestTransform(transform =>
+    {
+        // El correlation id validado (o generado) por el gateway viaja a los servicios internos.
+        string? correlationId = transform.HttpContext.GetCorrelationId();
+        if (correlationId is not null)
+        {
+            transform.ProxyRequest.Headers.Remove(CorrelationId.HeaderName);
+            transform.ProxyRequest.Headers.TryAddWithoutValidation(CorrelationId.HeaderName, correlationId);
+        }
+
+        return ValueTask.CompletedTask;
+    }));
 
 WebApplication app = builder.Build();
 
 app.UseSecunitecDefaults();
 app.UseAuthentication();
+// R02: después de autenticar (para particionar por sub) y antes de autorizar, para que las ráfagas con tokens
+// inválidos también se limiten por IP en vez de pasar directo al 401.
+app.UseRateLimiter();
+app.UseAuthorization();
 
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments(
-        "/api/billing"))
-    {
-        AuthenticateResult result =
-            await context.AuthenticateAsync(
-                JwtBearerDefaults.AuthenticationScheme);
+app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "gateway" }))
+    .AllowAnonymous()
+    .RequireRateLimiting(GatewayRateLimitPolicies.AnonymousByIp);
 
-        if (!result.Succeeded)
-        {
-            await Results.Unauthorized()
-                .ExecuteAsync(context);
-            return;
-        }
-
-        context.User = result.Principal ?? context.User;
-    }
-
-    await next(context);
-});
-
-app.Use(async (context, next) =>
-{
-    string policy =
-        context.Request.Path.StartsWithSegments(
-            "/connect/token")
-            ? "token-endpoint"
-            : "default";
-
-    string partition =
-        policy == "token-endpoint"
-            ? context.Connection.RemoteIpAddress?.ToString()
-                ?? "unknown-ip"
-            : context.User.FindFirstValue(
-                  SecunitecClaims.Subject)
-              ?? context.Connection.RemoteIpAddress?.ToString()
-              ?? "unknown";
-
-    int limit =
-        policy == "token-endpoint" ? 5 : 60;
-
-    RateLimitDecision decision =
-        await context.RequestServices
-            .GetRequiredService<RedisRateLimiter>()
-            .CheckAsync(
-                policy,
-                partition,
-                limit,
-                TimeSpan.FromMinutes(1));
-
-    if (!decision.Allowed)
-    {
-        context.Response.StatusCode =
-            StatusCodes.Status429TooManyRequests;
-        context.Response.ContentType =
-            "application/json";
-        context.Response.Headers.RetryAfter =
-            decision.RetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
-
-        await context.Response.WriteAsJsonAsync(
-            new
-            {
-                error = "rate_limited",
-                retry_after = decision.RetryAfterSeconds
-            });
-
-        return;
-    }
-
-    await next(context);
-});
-
-app.MapGet("/health",
-        () => Results.Ok(
-            new
-            {
-                status = "ok",
-                service = "gateway"
-            }))
-   .AllowAnonymous();
-
+// Cada ruta declara su AuthorizationPolicy y su RateLimiterPolicy en appsettings.json (ReverseProxy:Routes).
 app.MapReverseProxy();
 
 await app.RunAsync();
