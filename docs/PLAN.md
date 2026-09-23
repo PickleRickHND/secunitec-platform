@@ -5,7 +5,7 @@
 | Curso | Arquitectura de Sistemas Informáticos, UNITEC, Q3-2026 (Prof. Kevin Fúnez) |
 | Proyecto | Arquitectura y Ciberseguridad: Auditoría, Diseño y Resiliencia para Secunitec Corp. |
 | Repositorio | `PickleRickHND/secunitec-platform` (público, monorepo) |
-| Estado | Aprobado; etapas 1 a 4 completas (1.1 a 4.2); etapa 5 en curso en la rama `feature/5-evidencia` (5.1, 5.2 y 5.3 listas; 5.4 después) |
+| Estado | Aprobado; etapas 1.1 a 5.3 completas (PR #1 a #5 y el cierre del repo); falta la 5.4 (informe técnico y presentación) |
 | Última actualización | 2026-09-23 |
 
 Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué decidimos, cómo se estructura el repo y en qué orden se construye. Cada requisito tiene un ID (`R01`...) que se referencia desde el código, los diagramas y las pruebas para demostrar la "coherencia estricta" que exige el criterio de evaluación (a).
@@ -46,6 +46,9 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | Pool de YARP (5.3) | Las conexiones inactivas se sueltan a los 30 s, la mitad del keep-alive de 60 s de los servicios internos | Subir el keep-alive interno | La rampa de JMeter dio 3 respuestas 502. La ventana fija de 60 s dejaba a Billing inactivo justo 60 s y YARP reusaba conexiones que Kestrel estaba cerrando |
 | Pools de Npgsql (5.3) | `Maximum Pool Size` 50 en Billing y 20 en Identity: suman 70, dentro de las 97 conexiones que deja Postgres | Subir `max_connections`; limitar la concurrencia de Billing | El pico dio 33 respuestas 500 (53300) al abrirse cada ventana. Con el pool lleno la petición espera en vez de fallar |
 | Fase 1 fuera del repo (5.1) | Los diagramas (draw.io y OWASP Threat Dragon) y los documentos de amenazas, OWASP y trazabilidad viven en la carpeta del equipo, con el informe | `docs/01`, `docs/02-securuml/` (Mermaid + PlantUML), `docs/03` y `docs/trazabilidad.md` en el repo | Decisión del equipo: el repo lleva el sistema y su verificación; la Fase 1 se entrega con el informe. El STRIDE por componente se hizo en Threat Dragon (herramienta de OWASP) y los UML en draw.io, que ya usaba el equipo |
+| Arranque con un comando (cierre) | `.env.example` define `COMPOSE_PROFILES=security`: `docker compose up -d --build` levanta el Front-End, los tres servicios y las bases. Para la observabilidad, `COMPOSE_FILE` y `COMPOSE_PROFILES` con el overlay | Perfiles solo por la línea de comandos | Con el comando por defecto solo arrancaban las bases. La observabilidad sigue opcional, como en §5 |
+| Modo de prueba de Billing (cierre) | El compose ya no pasa `Billing__TestJwtKey`: en el compose, Billing solo acepta los RS256 de Identity. El modo HS256 queda para `dotnet run` en Development | Dejarlo vacío en `.env` | Con la clave en `.env`, Billing aceptaría tokens firmados con un secreto compartido |
+| Logs de auditoría (cierre) | Un log Information por evento de auditoría de Billing e Identity, sin actor, IP ni detalle. Sin logs por petición | Loguear cada petición o cada 429 | Enlaza la auditoría con su traza en Grafana. Un log por petición inundaría Loki bajo ataque; los 429 ya están en métricas y trazas |
 
 ---
 
@@ -189,7 +192,7 @@ sequenceDiagram
 |---|---|---|---|
 | TB0 | Internet → edge | Navegador, JMeter | TLS (dev cert) en gateway, rate limiting, validación JWT, headers de seguridad, límites de tamaño y timeouts. Implementado en 3.2: HTTPS en `https://localhost:8080` y HSTS fuera de `localhost` (ver `docs/problemas-conocidos.md`). En 4.1: CORS solo para el origen del SPA; el SPA en nginx sin privilegios con CSP estricta |
 | TB1 | edge → backend | Solo el gateway | Red `internal`, JWT re-validado en cada microservicio, `X-Forwarded-*` controlados |
-| TB2 | backend → data | Identity y Billing | Red `internal`, credenciales distintas por servicio y por base, sin puertos publicados |
+| TB2 | backend → data | Identity y Billing; el gateway solo hacia Redis (contadores del rate limiting) | Red `internal`, credenciales distintas por servicio y por base, sin puertos publicados |
 | TB3 | servicios → observability | Exportadores OTLP | Red separada. Implementado en 5.2:<br>- `observability` internal; solo el collector la cruza desde `backend`.<br>- Grafana con login y solo en `127.0.0.1:3001`.<br>- Sin datos sensibles en trazas: sin cabeceras ni query string (el collector borra lo que quede).<br>- Métricas sin IP, `sub` ni tenant.<br>Ver `docs/06-innovacion-opentelemetry.md` |
 
 ---
@@ -275,7 +278,7 @@ secunitec-platform/
 │   ├── e2e/                               # Playwright contra el compose (specs/grafana.spec.ts: capturas de 5.2 y 5.3)
 │   └── jmeter/                            # 01-baseline.jmx, 02-ramp-saturation.jmx, 03-spike.jmx (generar-planes.py) + secunitec.properties
 ├── infra/
-│   ├── postgres/init/01-databases.sql
+│   ├── postgres/init/01-databases.sh
 │   ├── mongo/setup/secunitec-setup.js     # usuarios, roles e índices (servicio mongo-setup, idempotente)
 │   ├── redis/redis.conf
 │   ├── nginx/default.conf.template        # SPA + CSP (la URL del gateway se fija al construir)
@@ -350,7 +353,7 @@ El orden minimiza dependencias: primero infraestructura, luego el emisor de toke
 | **H4** Gateway | YARP routes/clusters; políticas de rate limit (`anon-by-ip`, `user-by-sub`, `token-endpoint`) sobre Redis; `OnRejected` → 429 + `Retry-After` + JSON; JwtBearer; headers; transforms que quitan `Server`/`X-Powered-By`; límites de body y timeouts; correlation id; health | H2, H3 | Integración: 401 sin token; 429 con `Retry-After` tras N peticiones; headers correctos. `scripts/verify-hardening.sh` verde |
 | **H5** Frontend | Scaffold Vite; `oidc-client-ts` PKCE; rutas protegidas por rol; facturas (listar, crear, emitir, anular); auditoría (Auditor); panel de resiliencia (ráfaga configurable, contadores 200/401/403/429 en vivo, countdown de `Retry-After`, gráfica); nginx + CSP; Dockerfile multi-stage | H2, H4 | Vitest: parsing de 429/`Retry-After`. Playwright: login, crear factura, ver 429 en el panel |
 | **H6** Hardening integral | `cap_drop: [ALL]`, `read_only`, `no-new-privileges`, usuario non-root, `deploy.resources.limits`, secretos solo por `.env`; `docker network inspect`; gitleaks y auditoría de dependencias en CI; `docs/04` con la salida real de cada comando | H1-H5 | Checklist con evidencia reproducible |
-| **H7** Documentación Fase 1 | STRIDE por componente (IDs `T-xx`); SecurUML en Mermaid + PlantUML: despliegue con trust boundaries, clases con estereotipos de roles y permisos, casos de uso con actores, secuencias; mapeo OWASP; `trazabilidad.md` con `archivo:línea` | H2-H5 (para citar código real) | Revisión cruzada del equipo: cada amenaza tiene control y evidencia |
+| **H7** Documentación Fase 1 | STRIDE por elemento (IDs `T-xx`) en OWASP Threat Dragon; SecurUML en draw.io: despliegue con trust boundaries, clases con estereotipos de roles y permisos, casos de uso con actores, secuencias; mapeo OWASP; `trazabilidad.md` con `archivo:línea`. Todo fuera del repo, con el informe (§0) | H2-H5 (para citar código real) | Revisión cruzada del equipo: cada amenaza tiene control y evidencia |
 | **H8** Fase 4: OpenTelemetry | SDK OTel en los 3 servicios (trazas, métricas, logs); métricas propias (`secunitec_gateway_rate_limited_total`, `secunitec_billing_invoices_emitted_total`); collector, Prometheus, Tempo, Loki, cAdvisor; dashboards provisionados: "USE Overview", "Resiliencia del gateway", "Trazas"; `docs/06` con justificación y ventaja competitiva | H4, H5 | Dashboards muestran tráfico real del compose; trazas cruzan gateway → billing → Postgres |
 | **H9** Fase 3: estrés y USE | Planes JMeter (baseline 50 usuarios, rampa 0 → 500, spike 1000) con setup thread group que obtiene token; `run-jmeter.sh` y `capture-docker-stats.sh`; ejecución real; tabla USE por recurso (CPU, memoria, red, conexiones DB, thread pool); gráficas 429 vs 500; `docs/05` | H8 | Reporte HTML de JMeter + CSV de `docker stats` + dashboards; 5xx = 0 durante saturación |
 | **H10** Entregables | Informe técnico DOCX con la estructura del enunciado (portada, índices, objetivos, introducción, marco teórico, desarrollo con evidencias, conclusiones, recomendaciones, bibliografía); presentación PPTX de 30 min; README final; tag `v1.0` | Todo | Revisión final del equipo |
