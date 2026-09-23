@@ -252,7 +252,9 @@ networks:
     internal: true
   data:
     internal: true
-  observability: {}
+  # Fase 4 (docker-compose.observability.yml): collector, Prometheus, Tempo, Loki, cAdvisor y Grafana, sin salida.
+  observability:
+    internal: true
 
 volumes:
   postgres_data: {}

@@ -1,0 +1,75 @@
+# Fase 4 (R19): el collector recibe OTLP de gateway, identity y billing por la red backend y reparte cada señal:
+# métricas a Prometheus (scrape), trazas a Tempo y logs a Loki, los tres en la red observability (internal).
+# TB3: antes de salir se borran atributos que podrían llevar datos sensibles (query string y cabeceras HTTP).
+
+receivers:
+  otlp:
+    protocols:
+      # 0.0.0.0: desde la 0.110 el collector escucha solo en localhost por defecto.
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Acotado por el límite de memoria del contenedor: ante picos rechaza datos en vez de morir por OOM.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  batch:
+    send_batch_size: 1024
+    timeout: 2s
+  # TB3: defensa en profundidad. La instrumentación ya redacta la query; aquí se quita del todo junto con cualquier
+  # cabecera HTTP que algún servicio llegara a registrar (Authorization, cookies).
+  attributes/tb3:
+    actions:
+      - key: url.query
+        action: delete
+      - key: url.full
+        action: delete
+      - pattern: ^http\.(request|response)\.header\..*
+        action: delete
+      - key: enduser.id
+        action: delete
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    # service.name y el resto del recurso como etiquetas (service_name, service_instance_id, ...): los dashboards
+    # filtran por service_name.
+    resource_constant_labels:
+      included: ["*"]
+    # Nombres clásicos de Prometheus con sufijos: secunitec.gateway.rate_limited → secunitec_gateway_rate_limited_total.
+    translation_strategy: UnderscoreEscapingWithSuffixes
+    # Sin métricas de un servicio que se detuvo: desaparecen a los 5 minutos en vez de quedar congeladas.
+    metric_expiration: 5m
+  otlp_grpc/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: warn
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/tb3, batch]
+      exporters: [otlp_grpc/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/tb3, batch]
+      exporters: [otlp_http/loki]

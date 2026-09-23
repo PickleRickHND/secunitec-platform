@@ -1,0 +1,200 @@
+# Fase 4 (R19): observabilidad con OpenTelemetry. Perfil opcional; se levanta junto al compose principal:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile security --profile observability up -d --build
+#
+# Redes (R12, TB3):
+# - observability es internal: ningún contenedor de este archivo tiene salida a Internet ni puertos propios.
+# - El collector es el único que cruza TB3: recibe OTLP en backend (donde ya están gateway, identity y billing) y
+#   reparte en observability. Identity y Billing no cambian de red.
+# - Grafana también está en edge solo para publicar 127.0.0.1:3001, con login obligatorio.
+#
+# Hardening de 4.2 en cada servicio: usuario sin privilegios, sin capabilities, solo lectura, sin escalada y con
+# límites. Los anchors de YAML no cruzan archivos: por eso se repite x-hardening. Los secretos solo llegan por .env.
+
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  read_only: true
+
+# Exportación de los tres servicios .NET (AddSecunitecTelemetry): sin esta variable no exportan nada.
+x-otel: &otel
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  # Métricas cada 5 s (por defecto 60 s): los picos de 429 de la etapa 5.3 se verían aplanados.
+  OTEL_METRIC_EXPORT_INTERVAL: "5000"
+  # Fracción de trazas que se guardan (1.0 = todas). Para las pruebas de estrés conviene bajarla (docs/05).
+  Telemetry__TraceSampleRatio: ${OTEL_TRACE_SAMPLE_RATIO:-1.0}
+
+services:
+  gateway:
+    environment: *otel
+  identity:
+    environment: *otel
+  billing:
+    environment: *otel
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.161.0
+    profiles: [observability]
+    <<: *hardening
+    # uid 10001 (imagen distroless, sin shell).
+    command: [--config=/etc/otelcol/config.yaml]
+    # GOMEMLIMIT en los servicios en Go: el runtime no lee el límite del cgroup y el GC dejaría crecer el heap hasta el OOM.
+    environment:
+      GOMEMLIMIT: 200MiB
+    volumes:
+      - ./infra/otel/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    tmpfs:
+      - /tmp:size=16m
+    depends_on:
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+    # TB3: el único contenedor en backend y observability a la vez.
+    networks: [backend, observability]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M, pids: 200 }
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    profiles: [observability]
+    <<: *hardening
+    # nobody (65534). --web.enable-remote-write-receiver: Tempo escribe aquí el service graph.
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-remote-write-receiver
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    tmpfs:
+      - /tmp:size=16m
+    networks: [observability]
+    healthcheck:
+      test: [CMD-SHELL, 'wget -qO- http://127.0.0.1:9090/-/ready | grep -q Ready']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M, pids: 200 }
+
+  tempo:
+    image: grafana/tempo:3.0.3
+    profiles: [observability]
+    <<: *hardening
+    # uid 10001; /var/tempo ya es suyo en la imagen, así el volumen hereda el dueño.
+    command: [-config.file=/etc/tempo/tempo.yaml]
+    environment:
+      GOMEMLIMIT: 400MiB
+    volumes:
+      - ./infra/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    tmpfs:
+      - /tmp:size=16m
+    networks: [observability]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M, pids: 200 }
+
+  loki:
+    image: grafana/loki:3.7.8
+    profiles: [observability]
+    <<: *hardening
+    # uid 10001; /loki ya es suyo en la imagen.
+    command: [-config.file=/etc/loki/loki.yaml]
+    environment:
+      GOMEMLIMIT: 400MiB
+    volumes:
+      - ./infra/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/loki
+    tmpfs:
+      - /tmp:size=16m
+    networks: [observability]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M, pids: 200 }
+
+  # USE por contenedor (CPU, memoria, red y throttling). Sin root: uid 65534 con el grupo 0, que es el dueño de los
+  # sockets de Docker y containerd en la VM de Docker Desktop. Riesgos aceptados y documentados (docs/06 y STRIDE):
+  # - quien lee el socket de Docker controla el host, aunque el montaje sea :ro;
+  # - pid: host deja ver los procesos de la VM; sin él no hay red por contenedor (se lee de /proc/<pid>/net/dev).
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    profiles: [observability]
+    <<: *hardening
+    user: "65534:0"
+    pid: host
+    environment:
+      GOMEMLIMIT: 200MiB
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=5s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.service,com.docker.compose.project
+      - --disable_metrics=disk,diskIO,tcp,udp,percpu,sched,process,hugetlb,referenced_memory,cpu_topology,resctrl,advtcp,memory_numa,cpuset
+    volumes:
+      - /sys:/sys:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+    tmpfs:
+      - /tmp:size=16m
+    networks: [observability]
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 256M, pids: 100 }
+
+  grafana:
+    image: grafana/grafana:13.2.2
+    profiles: [observability]
+    <<: *hardening
+    # uid 472. TB3: login obligatorio, sin anónimos ni registro, sin llamadas a grafana.com.
+    environment:
+      GOMEMLIMIT: 400MiB
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Configurar GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: http://localhost:3001
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_SECURITY_CONTENT_SECURITY_POLICY: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_LOG_MODE: console
+      # Tema claro: las capturas van al informe impreso; la paleta de los paneles está validada para fondo claro.
+      GF_USERS_DEFAULT_THEME: light
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/resiliencia-gateway.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./infra/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infra/grafana/dashboards:/etc/grafana/dashboards:ro
+    tmpfs:
+      - /tmp:size=64m
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    # observability para leer los datasources; edge solo para publicar el puerto (una red internal no publica).
+    networks: [observability, edge]
+    ports:
+      - "127.0.0.1:3001:3000"
+    healthcheck:
+      test: [CMD-SHELL, 'wget -qO- http://127.0.0.1:3000/api/health | grep -q ok']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    # 512M: con 256M Grafana 13 terminó por OOM al cargar los tres dashboards (cada datasource corre como plugin aparte).
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M, pids: 300 }
+
+volumes:
+  prometheus_data: {}
+  tempo_data: {}
+  loki_data: {}
+  grafana_data: {}

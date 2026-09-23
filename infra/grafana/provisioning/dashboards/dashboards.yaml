@@ -1,0 +1,13 @@
+# Fase 4 (R19): los tres dashboards del plan (H8), versionados en infra/grafana/dashboards y de solo lectura en la UI.
+apiVersion: 1
+
+providers:
+  - name: secunitec
+    folder: Secunitec
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false
