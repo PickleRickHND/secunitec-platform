@@ -1,11 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Cross-cutting compartido por Gateway, Identity y Billing.Api: cabeceras de seguridad (R06),
-       correlation id, ProblemDetails sin fugas (A05), autorización deny-by-default (R04) y hardening de Kestrel. -->
+       correlation id, ProblemDetails sin fugas (A05), autorización deny-by-default (R04), hardening de Kestrel
+       y validación de los tokens de Identity. -->
   <PropertyGroup>
     <RootNamespace>Secunitec.BuildingBlocks.AspNetCore</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Secunitec.BuildingBlocks/Secunitec.BuildingBlocks.csproj" />

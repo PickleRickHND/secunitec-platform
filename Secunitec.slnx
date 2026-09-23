@@ -10,10 +10,18 @@
     <Project Path="src/Billing/Secunitec.Billing.Infrastructure/Secunitec.Billing.Infrastructure.csproj" />
     <Project Path="src/Billing/Secunitec.Billing.Api/Secunitec.Billing.Api.csproj" />
   </Folder>
+  <Folder Name="/src/Gateway/">
+    <Project Path="src/Gateway/Secunitec.Gateway/Secunitec.Gateway.csproj" />
+  </Folder>
+  <Folder Name="/src/Identity/">
+    <Project Path="src/Identity/Secunitec.Identity/Secunitec.Identity.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Secunitec.BuildingBlocks.Tests/Secunitec.BuildingBlocks.Tests.csproj" />
     <Project Path="tests/Secunitec.Billing.Domain.Tests/Secunitec.Billing.Domain.Tests.csproj" />
     <Project Path="tests/Secunitec.Billing.Application.Tests/Secunitec.Billing.Application.Tests.csproj" />
     <Project Path="tests/Secunitec.Billing.Infrastructure.Tests/Secunitec.Billing.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Secunitec.Gateway.Tests/Secunitec.Gateway.Tests.csproj" />
+    <Project Path="tests/Secunitec.Identity.Tests/Secunitec.Identity.Tests.csproj" />
   </Folder>
 </Solution>

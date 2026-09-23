@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +8,7 @@ using Secunitec.Billing.Api;
 using Secunitec.Billing.Application;
 using Secunitec.Billing.Infrastructure;
 using Secunitec.BuildingBlocks.AspNetCore.Hosting;
+using Secunitec.BuildingBlocks.AspNetCore.Security;
 using Secunitec.BuildingBlocks.Security;
 using StackExchange.Redis;
 
@@ -51,18 +53,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     }
     else
     {
-        options.Authority = builder.Configuration["Jwt:Authority"]
-            ?? throw new InvalidOperationException("Configure Jwt:Authority.");
-        options.Audience = SecunitecAudiences.Billing;
-        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            NameClaimType = SecunitecClaims.Name,
-            RoleClaimType = SecunitecClaims.Role
-        };
+        options.UseSecunitecIdentity(builder.Configuration, builder.Environment);
     }
 });
 
@@ -89,7 +80,20 @@ app.UseAuthorization();
 // Las migraciones se ejecutan una vez por despliegue; el rol billing solo tiene acceso a su base.
 using (IServiceScope scope = app.Services.CreateScope())
 {
-    await scope.ServiceProvider.GetRequiredService<BillingDbContext>().Database.MigrateAsync();
+    BillingDbContext db = scope.ServiceProvider.GetRequiredService<BillingDbContext>();
+    await db.Database.MigrateAsync();
+
+    // Datos de demostración solo en Development: obligado y cliente del tenant de ejemplo.
+    if (app.Environment.IsDevelopment() && app.Configuration["Billing:Seed:TenantId"] is { Length: > 0 } seedTenant)
+    {
+        await BillingDemoSeeder.SeedAsync(
+            db,
+            Guid.Parse(seedTenant, CultureInfo.InvariantCulture),
+            Guid.Parse(app.Configuration["Billing:Seed:ClienteId"]
+                ?? throw new InvalidOperationException("Configure Billing:Seed:ClienteId."), CultureInfo.InvariantCulture),
+            DateOnly.FromDateTime(DateTime.UtcNow),
+            CancellationToken.None);
+    }
 }
 
 RouteGroupBuilder api = app.MapGroup("/api/billing");

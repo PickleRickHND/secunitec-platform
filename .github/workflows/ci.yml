@@ -67,4 +67,4 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Validar sintaxis y referencias del compose
-        run: cp .env.example .env && docker compose --profile billing config --quiet
+        run: cp .env.example .env && docker compose --profile billing --profile security config --quiet
