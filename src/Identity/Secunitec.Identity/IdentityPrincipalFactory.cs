@@ -62,13 +62,16 @@ public sealed class IdentityPrincipalFactory
             principal.SetResources(SecunitecAudiences.Billing);
         }
 
-        principal.SetDestinations(static claim => claim.Type switch
+        // R09: con el scope roles, el id_token también lleva rol, tenant y cliente para que el SPA muestre la UI de
+        // cada rol sin leer el access token (que es para Billing). La autorización se sigue decidiendo en servidor.
+        bool rolesInIdToken = principal.HasScope(OpenIddictConstants.Scopes.Roles);
+        principal.SetDestinations(claim => claim.Type switch
         {
-            OpenIddictConstants.Claims.Subject =>
+            OpenIddictConstants.Claims.Subject or OpenIddictConstants.Claims.Name or OpenIddictConstants.Claims.Email =>
                 [OpenIddictConstants.Destinations.AccessToken,
                  OpenIddictConstants.Destinations.IdentityToken],
 
-            OpenIddictConstants.Claims.Name or OpenIddictConstants.Claims.Email =>
+            SecunitecClaims.Role or SecunitecClaims.TenantId or SecunitecClaims.ClienteId when rolesInIdToken =>
                 [OpenIddictConstants.Destinations.AccessToken,
                  OpenIddictConstants.Destinations.IdentityToken],
 

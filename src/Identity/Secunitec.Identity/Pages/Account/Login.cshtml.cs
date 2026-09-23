@@ -11,12 +11,15 @@ public sealed class LoginModel : PageModel
     private readonly UserManager<ApplicationUser> _users;
     private readonly SignInManager<ApplicationUser> _signIn;
     private readonly IdentityAuditWriter _audit;
+    private readonly IConfiguration _configuration;
 
-    public LoginModel(UserManager<ApplicationUser> users, SignInManager<ApplicationUser> signIn, IdentityAuditWriter audit)
+    public LoginModel(
+        UserManager<ApplicationUser> users, SignInManager<ApplicationUser> signIn, IdentityAuditWriter audit, IConfiguration configuration)
     {
         _users = users;
         _signIn = signIn;
         _audit = audit;
+        _configuration = configuration;
     }
 
     [BindProperty]
@@ -55,8 +58,11 @@ public sealed class LoginModel : PageModel
 
         if (result.Succeeded)
         {
-            // A01: solo se vuelve a una URL local; Url.IsLocalUrl rechaza //host y /\host (open redirect).
-            return LocalRedirect(Url.IsLocalUrl(ReturnUrl) ? ReturnUrl! : "/");
+            // A01: solo se vuelve a una URL local; Url.IsLocalUrl rechaza //host y /\host (open redirect). Sin
+            // ReturnUrl válido (login abierto directamente) se va al SPA configurado, nunca a una URL del request.
+            return Url.IsLocalUrl(ReturnUrl)
+                ? LocalRedirect(ReturnUrl!)
+                : Redirect(IdentitySeeder.SpaUrl(_configuration) + "/");
         }
 
         if (result.IsLockedOut)

@@ -1,0 +1,181 @@
+.filtros {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 13rem));
+  gap: var(--space-4);
+}
+
+.recargando {
+  opacity: 0.6;
+  transition: opacity 120ms ease;
+}
+
+.lineas {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.linea {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) 7rem 9rem auto auto;
+  gap: var(--space-3);
+  align-items: end;
+  padding-bottom: var(--space-3);
+  border-bottom: var(--border);
+}
+
+.lineaExento {
+  padding-bottom: 0.625rem;
+}
+
+.nota {
+  color: var(--color-slate);
+  font-size: var(--text-sm);
+}
+
+.documento {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-6);
+}
+
+.encabezado {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-5);
+  align-items: start;
+  padding-bottom: var(--space-5);
+  border-bottom: var(--border);
+}
+
+.emisor {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.emisorNombre {
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+}
+
+.numeroFiscal {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: end;
+  text-align: right;
+}
+
+.numeroEtiqueta {
+  color: var(--color-slate);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.numero {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.datosFiscales {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-4) var(--space-5);
+  margin: 0;
+}
+
+.dato {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.dato dt {
+  color: var(--color-slate);
+  font-size: var(--text-sm);
+}
+
+.dato dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.totales {
+  display: grid;
+  grid-template-columns: auto 10rem;
+  justify-content: end;
+  row-gap: var(--space-2);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.totales dt {
+  padding-right: var(--space-6);
+  color: var(--color-slate);
+  text-align: right;
+}
+
+.totales dd {
+  margin: 0;
+  text-align: right;
+}
+
+.totalFinal {
+  padding-top: var(--space-2);
+  border-top: var(--border);
+  color: var(--color-ink) !important;
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+}
+
+.layoutDetalle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18rem;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.layoutSolo {
+  grid-template-columns: minmax(0, 56rem);
+}
+
+.acciones {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.motivo {
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+@media (max-width: 60rem) {
+  .layoutDetalle {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 40rem) {
+  .linea {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .linea > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .documento {
+    padding: var(--space-5) var(--space-4);
+  }
+
+  .encabezado {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .numeroFiscal {
+    justify-items: start;
+    text-align: left;
+  }
+}

@@ -53,6 +53,21 @@ public sealed class SecurityHeadersMiddlewareTests
     }
 
     [Fact]
+    public async Task Csp_NoPisaLaQueYaTraeLaRespuesta()
+    {
+        // Caso del gateway: la respuesta reenviada de Identity trae su propia CSP.
+        await using TestApp app = await TestApp.StartAsync(a => a.MapGet("/", (HttpContext ctx) =>
+        {
+            ctx.Response.Headers.ContentSecurityPolicy = "default-src 'self'; frame-ancestors 'none'";
+            return Results.Ok();
+        }).AllowAnonymous());
+
+        HttpResponseMessage response = await app.Client.GetAsync("/", TestContext.Current.CancellationToken);
+
+        Assert.Equal("default-src 'self'; frame-ancestors 'none'", Header(response, "Content-Security-Policy"));
+    }
+
+    [Fact]
     public async Task CacheControl_NoPisaUnValorExplicitoDelEndpoint()
     {
         await using TestApp app = await TestApp.StartAsync(a => a.MapGet("/", (HttpContext ctx) =>

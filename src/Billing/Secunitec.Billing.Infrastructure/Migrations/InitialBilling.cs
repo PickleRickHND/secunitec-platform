@@ -1,11 +1,11 @@
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Secunitec.Billing.Infrastructure.Migrations;
 
-[DbContext(typeof(BillingDbContext))]
-[Migration("202609220001_InitialBilling")]
-public sealed class InitialBilling : Migration
+// Migración escrita a mano en la etapa 2.2; el Designer y el snapshot se generaron después (etapa 4) sin cambiar su SQL.
+// Su id tiene 12 dígitos y EF asume 14: se aplica bien con MigrateAsync, pero `dotnet ef database update` o
+// `migrations remove` no la encuentran por nombre. No renombrarla: las bases existentes la tienen en su historial.
+public sealed partial class InitialBilling : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {

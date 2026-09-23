@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <PackageReference Include="FluentValidation" />
     <ProjectReference Include="../Secunitec.Billing.Domain/Secunitec.Billing.Domain.csproj" />
     <ProjectReference Include="../../BuildingBlocks/Secunitec.BuildingBlocks/Secunitec.BuildingBlocks.csproj" />
   </ItemGroup>

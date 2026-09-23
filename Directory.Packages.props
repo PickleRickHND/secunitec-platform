@@ -11,6 +11,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
     <PackageVersion Include="Testcontainers.MongoDb" Version="4.15.0" />
+    <PackageVersion Include="Testcontainers" Version="4.15.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
   </ItemGroup>
@@ -18,11 +19,14 @@
   <ItemGroup Label="Billing">
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
+    <!-- Fija la versión transitiva: Npgsql pide >= 10.0.4 y el paquete Design (privado) compilaba contra 10.0.12. -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.12" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageVersion Include="MongoDB.Driver" Version="3.12.0" />
     <PackageVersion Include="StackExchange.Redis" Version="3.3.0" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <PackageVersion Include="FluentValidation" Version="12.1.1" />
   </ItemGroup>
 
   <ItemGroup Label="Security">

@@ -22,6 +22,7 @@ public static class ConnectEndpoints
         ArgumentNullException.ThrowIfNull(app);
         app.MapMethods("/connect/authorize", [HttpMethods.Get, HttpMethods.Post], AuthorizeAsync).AllowAnonymous();
         app.MapPost("/connect/token", TokenAsync).AllowAnonymous();
+        app.MapMethods("/connect/endsession", [HttpMethods.Get, HttpMethods.Post], EndSessionAsync).AllowAnonymous();
         return app;
     }
 
@@ -35,6 +36,18 @@ public static class ConnectEndpoints
             ?? throw new InvalidOperationException("Solicitud OpenID Connect inválida.");
 
         AuthenticateResult authentication = await context.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+        if (!authentication.Succeeded && request.HasPromptValue(OpenIddictConstants.PromptValues.None))
+        {
+            // OIDC Core §3.1.2.6: con prompt=none no se muestra el login; se responde login_required al cliente.
+            return Results.Forbid(
+                new AuthenticationProperties(new Dictionary<string, string?>
+                {
+                    [OpenIddictServerAspNetCoreConstants.Properties.Error] = OpenIddictConstants.Errors.LoginRequired,
+                    [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = "No hay una sesión iniciada.",
+                }),
+                [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
+        }
+
         if (!authentication.Succeeded)
         {
             string returnUrl = context.Request.PathBase + context.Request.Path + context.Request.QueryString;
@@ -76,7 +89,10 @@ public static class ConnectEndpoints
                 return Results.Forbid(authenticationSchemes: [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
             }
 
-            ClaimsPrincipal principal = await principals.CreateUserAsync(user, request.ClientId, request.GetScopes());
+            // Los scopes salen del código o del refresh token, no del request: en el canje del código el request no
+            // trae scope, y sin él el access token quedaba sin audiencia secunitec-billing (Billing respondía 401).
+            ClaimsPrincipal principal = await principals.CreateUserAsync(
+                user, request.ClientId, authentication.Principal!.GetScopes());
             return Results.SignIn(principal, authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         }
 
@@ -106,5 +122,24 @@ public static class ConnectEndpoints
         }
 
         return Results.BadRequest(new { error = OpenIddictConstants.Errors.UnsupportedGrantType });
+    }
+
+    // Cierre de sesión OIDC (RP-Initiated Logout). OpenIddict ya validó post_logout_redirect_uri contra el cliente;
+    // aquí se borra la cookie de Identity y OpenIddict redirige de vuelta al SPA.
+    private static async Task<IResult> EndSessionAsync(
+        HttpContext context, UserManager<ApplicationUser> users, IdentityAuditWriter audit)
+    {
+        AuthenticateResult authentication = await context.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+        ApplicationUser? user = authentication.Succeeded ? await users.GetUserAsync(authentication.Principal) : null;
+        await context.SignOutAsync(IdentityConstants.ApplicationScheme);
+
+        if (user is not null)
+        {
+            await audit.WriteAsync(context, "logout", success: true, user.Id, user.TenantId, detail: null, context.RequestAborted);
+        }
+
+        return Results.SignOut(
+            new AuthenticationProperties { RedirectUri = "/" },
+            [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
     }
 }

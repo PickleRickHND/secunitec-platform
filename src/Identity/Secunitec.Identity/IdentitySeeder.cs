@@ -51,30 +51,17 @@ public static class IdentitySeeder
 
     private static async Task EnsureClientsAsync(IOpenIddictApplicationManager applications, IConfiguration configuration)
     {
-        if (await applications.FindByClientIdAsync(SpaClientId) is null)
+        // El cliente del SPA se sincroniza en cada arranque: una base creada antes de la etapa 4.1 no tenía el permiso
+        // de cierre de sesión ni la URI de vuelta, y cambiar SECUNITEC_SPA_URL no debe exigir borrar la base.
+        OpenIddictApplicationDescriptor spa = SpaDescriptor(configuration);
+        object? existing = await applications.FindByClientIdAsync(SpaClientId);
+        if (existing is null)
         {
-            await applications.CreateAsync(new OpenIddictApplicationDescriptor
-            {
-                ClientId = SpaClientId,
-                ClientType = OpenIddictConstants.ClientTypes.Public,
-                ConsentType = OpenIddictConstants.ConsentTypes.Implicit,
-                DisplayName = "Secunitec SPA",
-                RedirectUris = { new Uri(configuration["Identity:SpaRedirectUri"] ?? "http://localhost:3000/auth/callback") },
-                Permissions =
-                {
-                    OpenIddictConstants.Permissions.Endpoints.Authorization,
-                    OpenIddictConstants.Permissions.Endpoints.Token,
-                    OpenIddictConstants.Permissions.GrantTypes.AuthorizationCode,
-                    OpenIddictConstants.Permissions.GrantTypes.RefreshToken,
-                    OpenIddictConstants.Permissions.ResponseTypes.Code,
-                    OpenIddictConstants.Permissions.Scopes.Profile,
-                    OpenIddictConstants.Permissions.Scopes.Email,
-                    OpenIddictConstants.Permissions.Scopes.Roles,
-                    OpenIddictConstants.Permissions.Prefixes.Scope + OpenIddictConstants.Scopes.OfflineAccess,
-                    OpenIddictConstants.Permissions.Prefixes.Scope + SecunitecAudiences.Billing,
-                },
-                Requirements = { OpenIddictConstants.Requirements.Features.ProofKeyForCodeExchange },
-            });
+            await applications.CreateAsync(spa);
+        }
+        else
+        {
+            await applications.UpdateAsync(existing, spa);
         }
 
         if (await applications.FindByClientIdAsync(ConnectEndpoints.JmeterClientId) is null)
@@ -94,6 +81,39 @@ public static class IdentitySeeder
                 },
             });
         }
+    }
+
+    /// <summary>URL del SPA sin barra final (<c>Identity:SpaUrl</c>); de ella salen las URIs de redirección.</summary>
+    internal static string SpaUrl(IConfiguration configuration) =>
+        (configuration["Identity:SpaUrl"] is { Length: > 0 } url ? url : "http://localhost:3000").TrimEnd('/');
+
+    internal static OpenIddictApplicationDescriptor SpaDescriptor(IConfiguration configuration)
+    {
+        string spaUrl = SpaUrl(configuration);
+        return new OpenIddictApplicationDescriptor
+        {
+            ClientId = SpaClientId,
+            ClientType = OpenIddictConstants.ClientTypes.Public,
+            ConsentType = OpenIddictConstants.ConsentTypes.Implicit,
+            DisplayName = "Secunitec SPA",
+            RedirectUris = { new Uri(spaUrl + "/auth/callback") },
+            PostLogoutRedirectUris = { new Uri(spaUrl + "/auth/logout-callback") },
+            Permissions =
+            {
+                OpenIddictConstants.Permissions.Endpoints.Authorization,
+                OpenIddictConstants.Permissions.Endpoints.Token,
+                OpenIddictConstants.Permissions.Endpoints.EndSession,
+                OpenIddictConstants.Permissions.GrantTypes.AuthorizationCode,
+                OpenIddictConstants.Permissions.GrantTypes.RefreshToken,
+                OpenIddictConstants.Permissions.ResponseTypes.Code,
+                OpenIddictConstants.Permissions.Scopes.Profile,
+                OpenIddictConstants.Permissions.Scopes.Email,
+                OpenIddictConstants.Permissions.Scopes.Roles,
+                OpenIddictConstants.Permissions.Prefixes.Scope + OpenIddictConstants.Scopes.OfflineAccess,
+                OpenIddictConstants.Permissions.Prefixes.Scope + SecunitecAudiences.Billing,
+            },
+            Requirements = { OpenIddictConstants.Requirements.Features.ProofKeyForCodeExchange },
+        };
     }
 
     internal static async Task EnsureUserAsync(

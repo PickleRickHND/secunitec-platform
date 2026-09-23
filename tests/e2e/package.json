@@ -1,0 +1,16 @@
+{
+  "name": "secunitec-e2e",
+  "private": true,
+  "version": "0.4.0",
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "scripts": {
+    "test": "playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.2",
+    "typescript": "6.0.3"
+  }
+}

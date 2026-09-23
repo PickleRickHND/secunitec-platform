@@ -1,0 +1,70 @@
+/*
+ * Tokens de diseño de Secunitec: dirección "institucional sobrio" (etapa 4.1).
+ * Fuente canónica. Identity usa una copia idéntica en wwwroot/account/assets/tokens.css; CI compara ambos archivos.
+ * El color solo comunica estado: el azul institucional es el único acento y se reserva a las acciones.
+ */
+:root {
+  color-scheme: light;
+
+  /* Superficies y líneas */
+  --color-page: #f6f8fb;
+  --color-surface: #ffffff;
+  --color-surface-muted: #eef2f7;
+  --color-line: #d9e0ea;
+  --color-line-strong: #b8c3d1;
+
+  /* Texto */
+  --color-ink: #1a2330;
+  --color-slate: #5a6678;
+
+  /* Acento institucional */
+  --color-brand: #1d4f91;
+  --color-brand-strong: #163c6e;
+  --color-brand-soft: #e7eef8;
+  --color-on-brand: #ffffff;
+  --color-on-brand-muted: #c9d6ea;
+
+  /* Estados: factura y respuesta HTTP */
+  --color-ok: #1f7a4d;
+  --color-ok-soft: #e6f3ec;
+  --color-draft: #5a6678;
+  --color-draft-soft: #eef2f7;
+  --color-danger: #b42318;
+  --color-danger-soft: #fbeae8;
+  --color-warn: #a65a06;
+  --color-warn-soft: #fbf0e3;
+  --color-violet: #5b4b9a;
+  --color-violet-soft: #efecf7;
+
+  --color-focus: #1d4f91;
+
+  /* Tipografía: Public Sans, escala 1.25 sobre 16 px */
+  --font-sans: "Public Sans Variable", "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5625rem;
+  --text-xl: 1.953rem;
+  --leading-body: 1.5;
+  --leading-tight: 1.2;
+  --weight-regular: 400;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Espacio (base 4 px) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 2.5rem;
+  --space-8: 3rem;
+
+  /* Forma */
+  --radius-card: 6px;
+  --radius-control: 4px;
+  --border: 1px solid var(--color-line);
+  --content-max: 75rem;
+  --control-height: 2.5rem;
+}
