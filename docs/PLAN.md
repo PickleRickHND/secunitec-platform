@@ -5,8 +5,8 @@
 | Curso | Arquitectura de Sistemas Informáticos, UNITEC, Q3-2026 (Prof. Kevin Fúnez) |
 | Proyecto | Arquitectura y Ciberseguridad: Auditoría, Diseño y Resiliencia para Secunitec Corp. |
 | Repositorio | `PickleRickHND/secunitec-platform` (público, monorepo) |
-| Estado | Aprobado; 1.1, 3.1 y 3.2 completos; 1.2 a 2.2 parciales (pendientes en el README) |
-| Última actualización | 2026-09-22 |
+| Estado | Aprobado; etapas 1 a 4 completas (1.1 a 4.2); pendientes menores y etapa 5 en el README |
+| Última actualización | 2026-09-23 |
 
 Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué decidimos, cómo se estructura el repo y en qué orden se construye. Cada requisito tiene un ID (`R01`...) que se referencia desde el código, los diagramas y las pruebas para demostrar la "coherencia estricta" que exige el criterio de evaluación (a).
 
@@ -29,6 +29,15 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | Idioma | Documentación y comentarios en español; identificadores de código en inglés (convención .NET / React) | | |
 | Emisor de los tokens (3.1) | Issuer = URL pública del gateway (`SECUNITEC_PUBLIC_URL`); Billing y el Gateway descargan el JWKS por la red interna (`InternalAuthorityHandler`) | Issuer interno `http://identity:8080` | Con el issuer interno el discovery anunciaba endpoints que el navegador no alcanza y el SPA no podía completar el Authorization Code |
 | Consentimiento OIDC (3.1) | Implícito para los clientes propios (`spa-secunitec`, `jmeter-load`); login y registro en Razor Pages | Pantalla de consentimiento explícito | Ambos clientes son del mismo sistema: el consentimiento solo agregaría un clic a cada login |
+| Alcance de la etapa 4 (2026-09-23) | La etapa 4 cierra también los pendientes de 1.2 a 2.2 (Pista B) | SPA solo con los endpoints existentes | El SPA necesitaba listar clientes, leer el obligado y la auditoría, y respuestas estables (DTOs) |
+| Otro tenant (4) | 403 y evento `acceso.denegado`; 404 si la factura no existe en ningún tenant | 404 siempre | Es el criterio de done de H3/2.2 y deja evidencia de auditoría. Los IDs son GUID, así que confirmar que existen no permite enumerarlos |
+| Puertos de Billing.Application (4) | Los del plan: `IFacturaRepository`, `IClienteRepository`, `IObligadoRepository`, `IUnitOfWork`, `INumeradorFacturas`, `IAuditoria`, `ICache` (+ `IRequestContext`) | Un solo `IBillingStore` | Coherencia con el diseño de 1.3 y pruebas con dobles por agregado |
+| SPA y gateway en orígenes distintos (4.1) | CORS `spa` por ruta de YARP, solo `SECUNITEC_SPA_URL`, sin credenciales; expone `Retry-After`. El preflight se responde antes del rate limiting | Servir el SPA a través del gateway (mismo origen) | El plan separa el Front-End en `:3000`; el preflight nunca llega a un servicio interno |
+| Tokens en el SPA (4.1) | `sessionStorage` (por pestaña) y renovación con refresh token, sin iframes | Tokens en memoria con `prompt=none` | Recargar la página no obliga a iniciar sesión; la CSP estricta (sin scripts en línea) mitiga el XSS |
+| Claims para la UI (4.1) | Con el scope `roles`, `role`, `tenant_id` y `cliente_id` también van al id_token | Leer el access token en el SPA | El access token es para Billing; el SPA solo oculta UI y el servidor decide |
+| Configuración del SPA (4.1) | URL del gateway y CSP de nginx fijadas al construir la imagen | Plantillas de nginx en tiempo de ejecución | Compatible con `read_only`; cambiar la URL exige `--build` |
+| Dirección visual (4.1) | "Institucional sobrio" (skill frontend-design): Public Sans self-hosted, azul institucional como único acento; la misma identidad en el login de Identity. Gráfica en SVG propio con la paleta de referencia del skill dataviz, validada | Librería de gráficas | Sin dependencias ni CSS en línea (CSP) y con la paleta validada para daltonismo |
+| Usuarios de Mongo (4.2) | Servicio `mongo-setup` idempotente en cada `up` | Scripts de `/docker-entrypoint-initdb.d` | Los init scripts solo corren con el volumen vacío; el servicio también corrige volúmenes existentes |
 
 ---
 
@@ -170,7 +179,7 @@ sequenceDiagram
 
 | ID | Frontera | Qué la cruza | Control en la frontera |
 |---|---|---|---|
-| TB0 | Internet → edge | Navegador, JMeter | TLS (dev cert) en gateway, rate limiting, validación JWT, headers de seguridad, límites de tamaño y timeouts. Implementado en 3.2: HTTPS en `https://localhost:8080` y HSTS fuera de `localhost` (ver `docs/problemas-conocidos.md`) |
+| TB0 | Internet → edge | Navegador, JMeter | TLS (dev cert) en gateway, rate limiting, validación JWT, headers de seguridad, límites de tamaño y timeouts. Implementado en 3.2: HTTPS en `https://localhost:8080` y HSTS fuera de `localhost` (ver `docs/problemas-conocidos.md`). En 4.1: CORS solo para el origen del SPA; el SPA en nginx sin privilegios con CSP estricta |
 | TB1 | edge → backend | Solo el gateway | Red `internal`, JWT re-validado en cada microservicio, `X-Forwarded-*` controlados |
 | TB2 | backend → data | Identity y Billing | Red `internal`, credenciales distintas por servicio y por base, sin puertos publicados |
 | TB3 | servicios → observability | Exportadores OTLP | Red separada, Grafana con login, sin datos sensibles en trazas |
@@ -245,7 +254,7 @@ secunitec-platform/
 │   │   ├── Secunitec.Billing.Application/
 │   │   ├── Secunitec.Billing.Infrastructure/
 │   │   └── Secunitec.Billing.Api/
-│   └── Frontend/                          # React 19 + Vite 8 + TypeScript
+│   └── Frontend/                          # React 19 + Vite 8 + TypeScript (Dockerfile con contexto en la raíz)
 ├── tests/
 │   ├── Directory.Build.props              # IsTestProject, runner MTP, global using Xunit
 │   ├── Secunitec.BuildingBlocks.Tests/    # xUnit v3: contrato del token, políticas, middlewares, Kestrel
@@ -253,13 +262,15 @@ secunitec-platform/
 │   ├── Secunitec.Billing.Api.Tests/       # integración con Testcontainers (Postgres + Mongo)
 │   ├── Secunitec.Identity.Tests/          # discovery, token, lockout
 │   ├── Secunitec.Gateway.Tests/           # 401, 429 + Retry-After, headers
-│   ├── e2e/                               # Playwright
+│   ├── Secunitec.Billing.Application.Tests/  # casos de uso con dobles en memoria
+│   ├── Secunitec.Billing.Infrastructure.Tests/  # caché con Redis caído y con el redis.conf real
+│   ├── e2e/                               # Playwright contra el compose
 │   └── jmeter/                            # 01-baseline.jmx, 02-ramp-saturation.jmx, 03-spike.jmx
 ├── infra/
 │   ├── postgres/init/01-databases.sql
-│   ├── mongo/init/01-audit.js
+│   ├── mongo/setup/secunitec-setup.js     # usuarios, roles e índices (servicio mongo-setup, idempotente)
 │   ├── redis/redis.conf
-│   ├── nginx/nginx.conf                   # SPA + CSP
+│   ├── nginx/default.conf.template        # SPA + CSP (la URL del gateway se fija al construir)
 │   ├── otel/otel-collector.yaml
 │   ├── prometheus/prometheus.yml
 │   ├── tempo/tempo.yaml
@@ -268,7 +279,7 @@ secunitec-platform/
 ├── scripts/
 │   ├── stress/run-jmeter.sh
 │   ├── stress/capture-docker-stats.sh     # docker stats → CSV cada segundo
-│   ├── verify-hardening.sh                # curl: headers, 401, 403, 429; docker network inspect
+│   ├── verify-hardening.sh                # curl, docker inspect/top, redes; --report escribe docs/04
 │   └── export-diagrams.sh                 # Mermaid → PNG/SVG para el informe
 ├── docs/
 │   ├── PLAN.md                            # este documento
@@ -308,8 +319,12 @@ secunitec-platform/
 | React / Vite / @vitejs/plugin-react | 19.3 / 8.3 / 6.1 |
 | react-router-dom / oidc-client-ts | 7.18 / 3.5 |
 | Vitest / @playwright/test | 5.0 / 1.63 |
+| TypeScript / ESLint / typescript-eslint (4.1) | 6.0.3 (typescript-eslint 8.70 no soporta la 7) / 10.11 / 8.70 |
+| @fontsource-variable/public-sans (4.1) | 5.3.0 (OFL; también copiada en el login de Identity) |
+| Testcontainers (núcleo, 4) | 4.15.0 (Redis con el `redis.conf` real en `Billing.Infrastructure.Tests`) |
+| dotnet-ef (herramienta local, `dotnet-tools.json`) | 10.0.12 |
 | Imágenes | `postgres:17-alpine`, `mongo:8`, `redis:7-alpine`, `nginxinc/nginx-unprivileged:alpine`, `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra`, `otel/opentelemetry-collector-contrib`, `prom/prometheus`, `grafana/tempo`, `grafana/loki`, `grafana/grafana`, `gcr.io/cadvisor/cadvisor` |
-| Herramientas locales | Docker 29 + Compose v5.5, JMeter (Homebrew) + Java 23, Node 22 solo para desarrollo del front (el compose lo construye en multi-stage) |
+| Herramientas locales | Docker 29 + Compose v5.5, JMeter (Homebrew) + Java 23, Node 22 + pnpm 11.24 solo para desarrollo del front y los E2E (el compose construye el SPA en multi-stage) |
 
 ---
 
