@@ -1,5 +1,5 @@
-// R03: esta fÃ¡brica centraliza la construcciÃ³n de los claims del contrato Secunitec.
-// R04: tenant_id y cliente_id acompaÃ±an al principal para mantener la autorizaciÃ³n contextual.
+// R03: esta fábrica centraliza la construcción de los claims del contrato Secunitec.
+// R04: tenant_id y cliente_id acompañan al principal para mantener la autorización contextual.
 
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;

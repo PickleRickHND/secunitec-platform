@@ -1,12 +1,12 @@
-﻿# Etapa 3.1 â€” Identity
+# Etapa 3.1 — Identity
 
 ## Objetivo
 
-Implementar el proveedor de identidad de Secunitec para registro, login y emisiÃ³n de tokens mediante OAuth 2.0 / OpenID Connect, manteniendo el contrato de claims definido en la etapa 1.1.
+Implementar el proveedor de identidad de Secunitec para registro, login y emisión de tokens mediante OAuth 2.0 / OpenID Connect, manteniendo el contrato de claims definido en la etapa 1.1.
 
 ## Componentes
 
-| Componente | ImplementaciÃ³n |
+| Componente | Implementación |
 |---|---|
 | Usuarios | ASP.NET Core Identity con `ApplicationUser` basado en GUID |
 | Persistencia | PostgreSQL `secunitec_identity` |
@@ -14,20 +14,20 @@ Implementar el proveedor de identidad de Secunitec para registro, login y emisi�
 | Flujos | Authorization Code + PKCE, Refresh Token y Client Credentials |
 | Tokens | Access token JWT con claims del contrato Secunitec |
 | Discovery | `/.well-known/openid-configuration` |
-| AuditorÃ­a | MongoDB, eventos de registro/login y fallos de autenticaciÃ³n |
+| Auditoría | MongoDB, eventos de registro/login y fallos de autenticación |
 | Contenedor | .NET 10 + imagen runtime chiseled |
 
 ## Controles de seguridad
 
-`R03`: Identity gestiona OAuth 2.0 / OIDC, emisiÃ³n y validaciÃ³n de tokens.
+`R03`: Identity gestiona OAuth 2.0 / OIDC, emisión y validación de tokens.
 
-`R04`: la autorizaciÃ³n es deny-by-default; Ãºnicamente los endpoints que el protocolo necesita exponer de forma anÃ³nima utilizan acceso anÃ³nimo explÃ­cito.
+`R04`: la autorización es deny-by-default; únicamente los endpoints que el protocolo necesita exponer de forma anónima utilizan acceso anónimo explícito.
 
-`R08`: los eventos de autenticaciÃ³n se registran en Mongo como evidencia de auditorÃ­a.
+`R08`: los eventos de autenticación se registran en Mongo como evidencia de auditoría.
 
-La polÃ­tica de contraseÃ±a exige longitud mÃ­nima de 12 caracteres, mayÃºsculas, minÃºsculas, dÃ­gitos y carÃ¡cter no alfanumÃ©rico. El bloqueo se configura despuÃ©s de 5 intentos fallidos durante 15 minutos.
+La política de contraseña exige longitud mínima de 12 caracteres, mayúsculas, minúsculas, dígitos y carácter no alfanumérico. El bloqueo se configura después de 5 intentos fallidos durante 15 minutos.
 
-Los tokens de acceso tienen vida corta y los refresh tokens tienen una vigencia mayor para permitir renovaciÃ³n sin volver a solicitar credenciales.
+Los tokens de acceso tienen vida corta y los refresh tokens tienen una vigencia mayor para permitir renovación sin volver a solicitar credenciales.
 
 ## Claims
 
@@ -41,7 +41,7 @@ Para Billing se establece la audiencia `secunitec-billing`.
 
 Se registran:
 
-- `spa-secunitec`: cliente pÃºblico para Authorization Code + PKCE.
+- `spa-secunitec`: cliente público para Authorization Code + PKCE.
 - `jmeter-load`: cliente confidencial para Client Credentials y pruebas de carga.
 
 ## Migraciones
@@ -50,11 +50,11 @@ La base de datos de Identity se versiona mediante EF Core. Se incluye:
 
 - `IdentityInitialCreate`
 - `ApplicationDbContextModelSnapshot`
-- `ApplicationDbContextFactory` para operaciones de diseÃ±o y generaciÃ³n de migraciones.
+- `ApplicationDbContextFactory` para operaciones de diseño y generación de migraciones.
 
-La migraciÃ³n generada contiene una supresiÃ³n local de diagnÃ³sticos de analizadores que no cambian el comportamiento de la migraciÃ³n.
+La migración generada contiene una supresión local de diagnósticos de analizadores que no cambian el comportamiento de la migración.
 
-## ValidaciÃ³n realizada
+## Validación realizada
 
 - `dotnet build Secunitec.slnx -c Release --no-restore`: correcto.
 - `dotnet test Secunitec.slnx -c Release --no-restore`: 72 pruebas correctas.
@@ -62,4 +62,4 @@ La migraciÃ³n generada contiene una supresiÃ³n local de diagnÃ³sticos de a
 
 ## Pendiente antes de considerar H2/H3 completamente cerrados
 
-TodavÃ­a debe ejecutarse la prueba de integraciÃ³n real del compose para comprobar discovery, Client Credentials, login/lockout y auditorÃ­a de Identity contra los contenedores reales.
+Todavía debe ejecutarse la prueba de integración real del compose para comprobar discovery, Client Credentials, login/lockout y auditoría de Identity contra los contenedores reales.
