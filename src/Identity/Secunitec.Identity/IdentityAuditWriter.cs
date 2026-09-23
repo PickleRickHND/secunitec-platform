@@ -1,5 +1,6 @@
 // R08 / A09: los eventos de autenticación (login, lockout, registro) se guardan en Mongo, solo inserción.
-// La escritura nunca interrumpe el login: si Mongo falla queda un warning en el log.
+// La escritura nunca interrumpe el login: si Mongo falla queda un warning en el log. Cada evento también va al log
+// (Information) sin datos personales, para verlo en Loki junto a su traza.
 
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
@@ -31,6 +32,8 @@ public sealed partial class IdentityAuditWriter
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
+        // Fase 4: el evento también va al log (Loki), enlazado a su traza. TB3: sin actor, IP ni detalle.
+        EventRecorded(_logger, action, success ? "exito" : "fallido");
         try
         {
             await _events.InsertOneAsync(
@@ -53,6 +56,9 @@ public sealed partial class IdentityAuditWriter
             AuditWriteFailed(_logger, action, ex);
         }
     }
+
+    [LoggerMessage(EventId = 3102, Level = LogLevel.Information, Message = "Auditoría: {Action} ({Result}).")]
+    private static partial void EventRecorded(ILogger logger, string action, string result);
 
     [LoggerMessage(EventId = 3101, Level = LogLevel.Warning,
         Message = "No se pudo registrar el evento de auditoría {Action} de Identity.")]
