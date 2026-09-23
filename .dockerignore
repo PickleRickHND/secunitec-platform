@@ -8,3 +8,8 @@
 TestResults
 *.zip
 *.patch
+**/dist
+**/playwright-report
+**/test-results
+# Certificados y claves de desarrollo: nunca dentro de una imagen (el compose los monta en tiempo de ejecución).
+infra/certs

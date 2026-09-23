@@ -1,6 +1,18 @@
+# Secunitec Platform (R11): todo el sistema en un compose. Redes aisladas (R12) y hardening de 4.2 en cada servicio:
+# usuario sin privilegios, sin capabilities, sistema de archivos de solo lectura, sin escalada de privilegios y con
+# límites de CPU, memoria y procesos. Los secretos solo llegan por .env. Evidencia: scripts/verify-hardening.sh.
+
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  read_only: true
+
 services:
   postgres:
     image: postgres:17-alpine
+    <<: *hardening
+    # uid 70 = postgres en la imagen alpine. Sin root, el entrypoint no intenta chown ni gosu (que exigen capabilities).
+    user: "70:70"
     environment:
       POSTGRES_USER: secunitec_bootstrap
       POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Configurar POSTGRES_ADMIN_PASSWORD}
@@ -10,35 +22,76 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    tmpfs:
+      - /var/run/postgresql:size=1m
+      - /tmp:size=16m
     networks: [data]
     healthcheck:
       test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d postgres']
       interval: 5s
       timeout: 3s
       retries: 10
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M, pids: 200 }
 
   mongo:
     image: mongo:8
+    <<: *hardening
+    # uid 999 = mongodb. La caché de WiredTiger se acota: por defecto toma la mitad de la RAM del límite y roza el OOM.
+    user: "999:999"
+    command: [--wiredTigerCacheSizeGB, "0.25"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: secunitec_bootstrap
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ADMIN_PASSWORD:?Configurar MONGO_ADMIN_PASSWORD}
-      MONGO_BILLING_PASSWORD: ${MONGO_BILLING_PASSWORD:?Configurar MONGO_BILLING_PASSWORD}
-      MONGO_IDENTITY_PASSWORD: ${MONGO_IDENTITY_PASSWORD:?Configurar MONGO_IDENTITY_PASSWORD}
       # Por defecto, el mismo valor que trae la imagen oficial. Si mongod no arranca por el kernel
       # (SERVER-121912), definir MONGO_GLIBC_TUNABLES en .env: ver docs/problemas-conocidos.md.
       GLIBC_TUNABLES: ${MONGO_GLIBC_TUNABLES:-glibc.pthread.rseq=0}
     volumes:
       - mongo_data:/data/db
-      - ./infra/mongo/init:/docker-entrypoint-initdb.d:ro
+      - mongo_config:/data/configdb
+    tmpfs:
+      - /tmp:size=64m
     networks: [data]
     healthcheck:
       test: [CMD-SHELL, 'mongosh --quiet --eval "db.adminCommand({ ping: 1 }).ok" | grep -q 1']
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M, pids: 300 }
+
+  # 2.1: usuarios, roles (solo insert y find) e índices de la auditoría. Idempotente: corre en cada `up` y también
+  # corrige volúmenes creados en etapas anteriores.
+  mongo-setup:
+    image: mongo:8
+    <<: *hardening
+    user: "999:999"
+    entrypoint: [mongosh, --nodb, --quiet, --file, /setup/secunitec-setup.js]
+    environment:
+      HOME: /tmp
+      MONGO_ADMIN_PASSWORD: ${MONGO_ADMIN_PASSWORD:?Configurar MONGO_ADMIN_PASSWORD}
+      MONGO_BILLING_PASSWORD: ${MONGO_BILLING_PASSWORD:?Configurar MONGO_BILLING_PASSWORD}
+      MONGO_IDENTITY_PASSWORD: ${MONGO_IDENTITY_PASSWORD:?Configurar MONGO_IDENTITY_PASSWORD}
+    volumes:
+      - ./infra/mongo/setup:/setup:ro
+    tmpfs:
+      - /tmp:size=16m
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks: [data]
+    restart: "no"
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 256M, pids: 100 }
 
   redis:
     image: redis:7-alpine
+    <<: *hardening
+    # uid 999 = redis. Antes corría como root: con `sh -c` el entrypoint no bajaba privilegios.
+    user: "999:1000"
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Configurar REDIS_PASSWORD}
     command: [sh, -c, 'exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$${REDIS_PASSWORD}"']
@@ -50,19 +103,25 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 192M, pids: 100 }
 
   identity:
     profiles: [security]
     build:
       context: .
       dockerfile: src/Identity/Secunitec.Identity/Dockerfile
+    <<: *hardening
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: 8080
-      ConnectionStrings__Identity: Host=postgres;Database=secunitec_identity;Username=identity_app;Password=${IDENTITY_DB_PASSWORD};Include Error Detail=false
+      ConnectionStrings__Identity: Host=postgres;Database=secunitec_identity;Username=identity_app;Password=${IDENTITY_DB_PASSWORD};Include Error Detail=false;GSS Encryption Mode=Disable
       Mongo__ConnectionString: mongodb://identity_audit:${MONGO_IDENTITY_PASSWORD}@mongo:27017/secunitec_audit?authSource=secunitec_audit
       # Issuer público: la URL del gateway que usan el navegador y JMeter (sin barra final en .env).
       Identity__Issuer: ${SECUNITEC_PUBLIC_URL:-https://localhost:8080}/
+      # URL del SPA: de ella salen las URIs de redirección del cliente spa-secunitec.
+      Identity__SpaUrl: ${SECUNITEC_SPA_URL:-http://localhost:3000}
       Identity__RegistrationTenantId: ${IDENTITY_REGISTRATION_TENANT_ID:?Configurar IDENTITY_REGISTRATION_TENANT_ID}
       Identity__SeedAdminEmail: ${IDENTITY_SEED_ADMIN_EMAIL:?Configurar IDENTITY_SEED_ADMIN_EMAIL}
       Identity__SeedAdminPassword: ${IDENTITY_SEED_ADMIN_PASSWORD:?Configurar IDENTITY_SEED_ADMIN_PASSWORD}
@@ -72,22 +131,37 @@ services:
       # Opcional: usuarios de demostración por rol (facturador@, auditor@ y cliente@secunitec.local).
       Identity__SeedDemoPassword: ${IDENTITY_SEED_DEMO_PASSWORD:-}
       Identity__SeedClienteId: ${SEED_CLIENTE_ID:-00000000-0000-0000-0000-0000000000c1}
+      # Llaves que sobreviven a un reinicio: Data Protection en un volumen y los PEM de scripts/dev-cert.sh.
+      DataProtection__KeysPath: /keys
+      Identity__SigningCertificate__Path: /https/identity-signing.pem
+      Identity__SigningCertificate__KeyPath: /https/identity-signing.key
+      Identity__EncryptionCertificate__Path: /https/identity-encryption.pem
+      Identity__EncryptionCertificate__KeyPath: /https/identity-encryption.key
+    volumes:
+      - identity_keys:/keys
+      - ./infra/certs:/https:ro
+    tmpfs:
+      - /tmp:size=64m
     depends_on:
       postgres:
         condition: service_healthy
-      mongo:
-        condition: service_healthy
+      mongo-setup:
+        condition: service_completed_successfully
     networks: [backend, data]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 384M, pids: 200 }
 
   billing:
     profiles: [billing, security]
     build:
       context: .
       dockerfile: src/Billing/Secunitec.Billing.Api/Dockerfile
+    <<: *hardening
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: 8080
-      ConnectionStrings__Billing: Host=postgres;Database=secunitec_billing;Username=billing_app;Password=${BILLING_DB_PASSWORD};Include Error Detail=false
+      ConnectionStrings__Billing: Host=postgres;Database=secunitec_billing;Username=billing_app;Password=${BILLING_DB_PASSWORD};Include Error Detail=false;GSS Encryption Mode=Disable
       Mongo__ConnectionString: mongodb://billing_audit:${MONGO_BILLING_PASSWORD}@mongo:27017/secunitec_audit?authSource=secunitec_audit
       Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD},abortConnect=false
       # Valida el issuer público y descarga el JWKS de Identity por la red interna.
@@ -97,20 +171,27 @@ services:
       # Development: obligado y cliente de demostración en el tenant de ejemplo (el cliente del usuario cliente@).
       Billing__Seed__TenantId: ${IDENTITY_SEED_ADMIN_TENANT_ID:-}
       Billing__Seed__ClienteId: ${SEED_CLIENTE_ID:-00000000-0000-0000-0000-0000000000c1}
+    tmpfs:
+      - /tmp:size=64m
     depends_on:
       postgres:
         condition: service_healthy
-      mongo:
-        condition: service_healthy
+      mongo-setup:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     networks: [backend, data]
+    # Límites bajos a propósito: la etapa 5.3 (JMeter, Método USE) debe poder saturar Billing en una laptop.
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M, pids: 200 }
 
   gateway:
     profiles: [security]
     build:
       context: .
       dockerfile: src/Gateway/Secunitec.Gateway/Dockerfile
+    <<: *hardening
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       # TB0: el TLS termina en el gateway con el certificado de desarrollo (scripts/dev-cert.sh).
@@ -120,6 +201,10 @@ services:
       Jwt__Authority: ${SECUNITEC_PUBLIC_URL:-https://localhost:8080}/
       Jwt__InternalAuthority: http://identity:8080/
       Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD},abortConnect=false
+      # R09: único origen al que el gateway le responde con CORS.
+      Cors__AllowedOrigins__0: ${SECUNITEC_SPA_URL:-http://localhost:3000}
+    tmpfs:
+      - /tmp:size=64m
     depends_on:
       identity:
         condition: service_started
@@ -129,10 +214,37 @@ services:
         condition: service_healthy
     volumes:
       - ./infra/certs:/https:ro
-    # Única entrada publicada en el host (R01). data: los contadores del rate limiting viven en Redis.
+    # Entrada publicada en el host (R01). data: los contadores del rate limiting viven en Redis.
     networks: [edge, backend, data]
     ports:
       - "127.0.0.1:8080:8443"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 256M, pids: 200 }
+
+  frontend:
+    profiles: [security]
+    build:
+      context: .
+      dockerfile: src/Frontend/Dockerfile
+      args:
+        VITE_GATEWAY_URL: ${SECUNITEC_PUBLIC_URL:-https://localhost:8080}
+        VITE_SPA_URL: ${SECUNITEC_SPA_URL:-http://localhost:3000}
+    <<: *hardening
+    tmpfs:
+      - /tmp:size=16m
+    # Solo en edge: el navegador habla con el gateway; nginx no necesita alcanzar ningún servicio interno.
+    networks: [edge]
+    ports:
+      - "127.0.0.1:3000:8080"
+    healthcheck:
+      test: [CMD-SHELL, 'wget -qO- http://127.0.0.1:8080/healthz | grep -q ok']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 64M, pids: 100 }
 
 networks:
   edge: {}
@@ -145,3 +257,5 @@ networks:
 volumes:
   postgres_data: {}
   mongo_data: {}
+  mongo_config: {}
+  identity_keys: {}
