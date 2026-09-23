@@ -4,7 +4,16 @@
     <Project Path="src/BuildingBlocks/Secunitec.BuildingBlocks.AspNetCore/Secunitec.BuildingBlocks.AspNetCore.csproj" />
     <Project Path="src/BuildingBlocks/Secunitec.BuildingBlocks/Secunitec.BuildingBlocks.csproj" />
   </Folder>
+  <Folder Name="/src/Billing/">
+    <Project Path="src/Billing/Secunitec.Billing.Domain/Secunitec.Billing.Domain.csproj" />
+    <Project Path="src/Billing/Secunitec.Billing.Application/Secunitec.Billing.Application.csproj" />
+    <Project Path="src/Billing/Secunitec.Billing.Infrastructure/Secunitec.Billing.Infrastructure.csproj" />
+    <Project Path="src/Billing/Secunitec.Billing.Api/Secunitec.Billing.Api.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Secunitec.BuildingBlocks.Tests/Secunitec.BuildingBlocks.Tests.csproj" />
+    <Project Path="tests/Secunitec.Billing.Domain.Tests/Secunitec.Billing.Domain.Tests.csproj" />
+    <Project Path="tests/Secunitec.Billing.Application.Tests/Secunitec.Billing.Application.Tests.csproj" />
+    <Project Path="tests/Secunitec.Billing.Infrastructure.Tests/Secunitec.Billing.Infrastructure.Tests.csproj" />
   </Folder>
 </Solution>

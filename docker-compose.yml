@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: secunitec_bootstrap
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Configurar POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: postgres
+      BILLING_DB_PASSWORD: ${BILLING_DB_PASSWORD:?Configurar BILLING_DB_PASSWORD}
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:?Configurar IDENTITY_DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d postgres']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mongo:
+    image: mongo:8
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: secunitec_bootstrap
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ADMIN_PASSWORD:?Configurar MONGO_ADMIN_PASSWORD}
+      MONGO_BILLING_PASSWORD: ${MONGO_BILLING_PASSWORD:?Configurar MONGO_BILLING_PASSWORD}
+      # Por defecto, el mismo valor que trae la imagen oficial. Si mongod no arranca por el kernel
+      # (SERVER-121912), definir MONGO_GLIBC_TUNABLES en .env: ver docs/problemas-conocidos.md.
+      GLIBC_TUNABLES: ${MONGO_GLIBC_TUNABLES:-glibc.pthread.rseq=0}
+    volumes:
+      - mongo_data:/data/db
+      - ./infra/mongo/init:/docker-entrypoint-initdb.d:ro
+    networks: [data]
+    healthcheck:
+      test: [CMD-SHELL, 'mongosh --quiet --eval "db.adminCommand({ ping: 1 }).ok" | grep -q 1']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Configurar REDIS_PASSWORD}
+    command: [sh, -c, 'exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$${REDIS_PASSWORD}"']
+    volumes:
+      - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks: [data]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  billing:
+    profiles: [billing]
+    build:
+      context: .
+      dockerfile: src/Billing/Secunitec.Billing.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: 8080
+      ConnectionStrings__Billing: Host=postgres;Database=secunitec_billing;Username=billing_app;Password=${BILLING_DB_PASSWORD};Include Error Detail=false
+      Mongo__ConnectionString: mongodb://billing_audit:${MONGO_BILLING_PASSWORD}@mongo:27017/secunitec_audit?authSource=secunitec_audit
+      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD},abortConnect=false
+      Jwt__Authority: http://identity:8080
+      Billing__TestJwtKey: ${BILLING_TEST_JWT_KEY:-}
+    depends_on:
+      postgres: {condition: service_healthy}
+      mongo: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [edge, backend, data]
+    # El puerto local es temporal para probar 2.2; se eliminará al incorporar Gateway (3.2).
+    ports: ["127.0.0.1:8082:8080"]
+
+networks:
+  edge: {}
+  backend:
+    internal: true
+  data:
+    internal: true
+  observability: {}
+
+volumes:
+  postgres_data: {}
+  mongo_data: {}

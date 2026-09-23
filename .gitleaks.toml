@@ -1,0 +1,11 @@
+# Configuración de gitleaks para CI y para `gitleaks git --staged` local: reglas por defecto más
+# excepciones acotadas. Antes de agregar una excepción, leer docs/problemas-conocidos.md.
+[extend]
+useDefault = true
+
+# Se usa la tabla única [allowlist] porque gitleaks-action@v3 corre la 8.24.3, que ignora [[allowlists]].
+# Solo la regex (sin `paths`): en esta tabla las condiciones se combinan con OR y una ruta dejaría pasar
+# cualquier secreto real que se escriba en ese archivo.
+[allowlist]
+description = "Valores CAMBIAR_* de .env.example: son placeholders que se reemplazan en .env, no secretos"
+regexes = ['''^CAMBIAR_[A-Z0-9_]+$''']

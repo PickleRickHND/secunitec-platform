@@ -5,7 +5,7 @@
 | Curso | Arquitectura de Sistemas Informáticos, UNITEC, Q3-2026 (Prof. Kevin Fúnez) |
 | Proyecto | Arquitectura y Ciberseguridad: Auditoría, Diseño y Resiliencia para Secunitec Corp. |
 | Repositorio | `PickleRickHND/secunitec-platform` (público, monorepo) |
-| Estado | Aprobado; Etapa 1 en curso (ver §7.1) |
+| Estado | Aprobado; 1.1 completo, 1.2 a 2.2 parciales (pendientes en el README) |
 | Última actualización | 2026-09-22 |
 
 Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué decidimos, cómo se estructura el repo y en qué orden se construye. Cada requisito tiene un ID (`R01`...) que se referencia desde el código, los diagramas y las pruebas para demostrar la "coherencia estricta" que exige el criterio de evaluación (a).
@@ -25,7 +25,7 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | Flujo OAuth del SPA | Authorization Code + PKCE (`oidc-client-ts`) | Password grant (ROPC) | Es el flujo recomendado por el OAuth 2.0 Security BCP (RFC 9700); ROPC está desaconsejado |
 | Servicio a servicio / carga | Client Credentials (cliente confidencial `jmeter-load`) | Token hardcodeado | JMeter obtiene su token de forma estándar en un setup thread group |
 | Fase 4 (innovación) | OpenTelemetry Collector + Prometheus + Tempo + Loki + Grafana + cAdvisor | mTLS, WAF Coraza, service mesh | Refuerza la Fase 3 con dashboards USE en vivo; muy demostrable ante el comité. mTLS queda como extensión opcional si sobra tiempo |
-| Imágenes runtime .NET | `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled` (distroless, non-root) | `aspnet:10.0-alpine` | Menor superficie de ataque, sin shell ni gestor de paquetes |
+| Imágenes runtime .NET | `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra` (distroless, non-root) | `aspnet:10.0-alpine` | Incluye tzdata para calcular la fecha de emisión en `America/Tegucigalpa`; sin shell ni gestor de paquetes |
 | Idioma | Documentación y comentarios en español; identificadores de código en inglés (convención .NET / React) | | |
 
 ---
@@ -305,7 +305,7 @@ secunitec-platform/
 | React / Vite / @vitejs/plugin-react | 19.3 / 8.3 / 6.1 |
 | react-router-dom / oidc-client-ts | 7.18 / 3.5 |
 | Vitest / @playwright/test | 5.0 / 1.63 |
-| Imágenes | `postgres:17-alpine`, `mongo:8`, `redis:7-alpine`, `nginxinc/nginx-unprivileged:alpine`, `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`, `otel/opentelemetry-collector-contrib`, `prom/prometheus`, `grafana/tempo`, `grafana/loki`, `grafana/grafana`, `gcr.io/cadvisor/cadvisor` |
+| Imágenes | `postgres:17-alpine`, `mongo:8`, `redis:7-alpine`, `nginxinc/nginx-unprivileged:alpine`, `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra`, `otel/opentelemetry-collector-contrib`, `prom/prometheus`, `grafana/tempo`, `grafana/loki`, `grafana/grafana`, `gcr.io/cadvisor/cadvisor` |
 | Herramientas locales | Docker 29 + Compose v5.5, JMeter (Homebrew) + Java 23, Node 22 solo para desarrollo del front (el compose lo construye en multi-stage) |
 
 ---
@@ -384,6 +384,7 @@ Claims crudos, sin mapeo a `ClaimTypes.*`: `sub` (Guid), `role` (multivalor: `Ad
 | Riesgo | Mitigación |
 |---|---|
 | Docker Desktop apagado en la máquina de desarrollo (estado al 2026-09-21) | Encender antes de H1; documentar requisitos en README |
+| MongoDB 8 no arranca con kernels Linux 6.19 a 7.0.13 ([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)); Docker Desktop 4.92 trae 7.0.12 (estado al 2026-09-22) | Opcional, solo en las máquinas afectadas: `MONGO_GLIBC_TUNABLES=glibc.pthread.rseq=1` en `.env` (TCMalloc sin rseq, algo menos de rendimiento del asignador). Procedimiento en `docs/problemas-conocidos.md`; fallback: `mongo:7` |
 | Compatibilidad OpenIddict 7.7 con .NET 10 | Verificar changelog al iniciar H2; fallback a la última 6.x compatible |
 | `RedisRateLimiting` es un paquete comunitario | Verificar mantenimiento; fallback documentado: limiter en memoria (una sola instancia de gateway) |
 | JMeter sale de una sola IP: un límite por IP bloquearía todo al instante | Particiones por `sub`/`client_id` cuando hay token; por IP solo para anónimos; el plan usa varios clientes y usuarios |
