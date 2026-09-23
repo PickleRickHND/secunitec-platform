@@ -218,6 +218,36 @@ public sealed class FacturasServiceTests
         Assert.Null(borrador.Numero);
     }
 
+    // 5.2 (R19): secunitec_billing_invoices_emitted_total cuenta solo las emisiones confirmadas.
+    [Fact]
+    public async Task Emitir_Confirmada_CuentaUnaFacturaEmitida()
+    {
+        Escenario escenario = new();
+        Guid tenant = escenario.TenantConObligado();
+        Factura borrador = escenario.Factura(tenant, escenario.Cliente(tenant).Id);
+
+        await escenario.Facturas(new FakeUser(tenant, SecunitecRoles.Facturador)).Emitir(borrador.Id, Escenario.Hoy, Ct);
+
+        Assert.Equal(1, escenario.Metricas.Emitidas);
+    }
+
+    [Fact]
+    public async Task Emitir_Rechazada_NoCuentaEnLaMetrica()
+    {
+        Escenario escenario = new();
+        Guid tenant = escenario.TenantConObligado();
+        FacturasService service = escenario.Facturas(new FakeUser(tenant, SecunitecRoles.Facturador));
+        Factura factura = escenario.Factura(tenant, escenario.Cliente(tenant).Id);
+        await service.Emitir(factura.Id, Escenario.Hoy, Ct);
+
+        // Emitir dos veces la misma factura viola la regla de estado: la segunda no suma.
+        await Assert.ThrowsAsync<BillingRuleException>(() => service.Emitir(factura.Id, Escenario.Hoy, Ct));
+        await Assert.ThrowsAsync<BillingAccessException>(() =>
+            escenario.Facturas(new FakeUser(tenant, SecunitecRoles.Auditor)).Emitir(factura.Id, Escenario.Hoy, Ct));
+
+        Assert.Equal(1, escenario.Metricas.Emitidas);
+    }
+
     [Fact]
     public async Task AgregarLinea_RecalculaYAudita()
     {

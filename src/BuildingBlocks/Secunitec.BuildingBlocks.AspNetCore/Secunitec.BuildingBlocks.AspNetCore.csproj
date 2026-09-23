@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Cross-cutting compartido por Gateway, Identity y Billing.Api: cabeceras de seguridad (R06),
        correlation id, ProblemDetails sin fugas (A05), autorización deny-by-default (R04), hardening de Kestrel
-       y validación de los tokens de Identity. -->
+       validación de los tokens de Identity y telemetría OpenTelemetry (5.2, R19). -->
   <PropertyGroup>
     <RootNamespace>Secunitec.BuildingBlocks.AspNetCore</RootNamespace>
   </PropertyGroup>
@@ -10,6 +10,10 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Secunitec.BuildingBlocks/Secunitec.BuildingBlocks.csproj" />

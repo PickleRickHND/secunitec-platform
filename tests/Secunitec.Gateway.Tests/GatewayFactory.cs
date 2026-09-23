@@ -46,6 +46,11 @@ public sealed class GatewayFactory : WebApplicationFactory<Program>, IAsyncLifet
     /// <summary>Último X-Correlation-Id que recibió el backend, por ruta.</summary>
     public ConcurrentDictionary<string, string> BackendCorrelationIds { get; } = new();
 
+    /// <summary>Último traceparent y baggage que recibió el backend, por ruta (TB0, etapa 5.2).</summary>
+    public ConcurrentDictionary<string, string> BackendTraceParents { get; } = new();
+
+    public ConcurrentDictionary<string, string> BackendBaggage { get; } = new();
+
     public async ValueTask InitializeAsync()
     {
         WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
@@ -56,6 +61,8 @@ public sealed class GatewayFactory : WebApplicationFactory<Program>, IAsyncLifet
             string path = context.Request.Path.Value ?? "/";
             BackendHits.AddOrUpdate(path, 1, (_, hits) => hits + 1);
             BackendCorrelationIds[path] = context.Request.Headers["X-Correlation-Id"].ToString();
+            BackendTraceParents[path] = context.Request.Headers["traceparent"].ToString();
+            BackendBaggage[path] = context.Request.Headers["baggage"].ToString();
             context.Response.Headers.Server = "Kestrel-backend";
             context.Response.Headers["X-Powered-By"] = "backend";
             return Results.Ok(new { path });

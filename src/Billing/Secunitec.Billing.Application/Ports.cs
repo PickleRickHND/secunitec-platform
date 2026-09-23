@@ -77,6 +77,14 @@ public interface ICache
     Task Invalidar(Guid tenantId, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Métricas de negocio (5.2, R19). Se registran después de confirmar la transacción: una emisión revertida no cuenta.
+/// </summary>
+public interface IMetricasFacturacion
+{
+    void FacturaEmitida();
+}
+
 /// <summary>Datos de la petición que la auditoría necesita y que no están en el token.</summary>
 public interface IRequestContext
 {

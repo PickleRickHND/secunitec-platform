@@ -4,6 +4,7 @@
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Testcontainers" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
     <ProjectReference Include="../../src/Billing/Secunitec.Billing.Infrastructure/Secunitec.Billing.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

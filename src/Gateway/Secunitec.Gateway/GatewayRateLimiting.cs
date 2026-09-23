@@ -5,6 +5,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using RedisRateLimiting;
 using Secunitec.BuildingBlocks.Security;
 using StackExchange.Redis;
@@ -39,6 +40,7 @@ public static class GatewayRateLimitingExtensions
     {
         ArgumentNullException.ThrowIfNull(configuration);
         services.Configure<GatewayRateLimitOptions>(configuration.GetSection("RateLimiting"));
+        services.AddSingleton<GatewayMetrics>();
 
         services.AddRateLimiter(options =>
         {
@@ -53,9 +55,11 @@ public static class GatewayRateLimitingExtensions
             // R02: 429 + Retry-After + JSON; la petición nunca llega al servicio interno.
             options.OnRejected = async (context, cancellationToken) =>
             {
-                int window = context.HttpContext.RequestServices
+                IServiceProvider requestServices = context.HttpContext.RequestServices;
+                int window = requestServices
                     .GetRequiredService<Microsoft.Extensions.Options.IOptions<GatewayRateLimitOptions>>().Value.WindowSeconds;
                 int retryAfter = RetryAfterSeconds(context.Lease, window);
+                requestServices.GetRequiredService<GatewayMetrics>().RateLimited(PolicyName(context.HttpContext), retryAfter);
                 context.HttpContext.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
                 await context.HttpContext.Response.WriteAsJsonAsync(
                     new { error = "rate_limited", retry_after = retryAfter }, cancellationToken);
@@ -64,6 +68,10 @@ public static class GatewayRateLimitingExtensions
 
         return services;
     }
+
+    /// <summary>Política del endpoint (la ruta de YARP o <c>/health</c> la declaran con <c>EnableRateLimiting</c>).</summary>
+    private static string PolicyName(HttpContext http) =>
+        http.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName ?? "desconocida";
 
     private static string ByIp(HttpContext http) =>
         "ip:" + (http.Connection.RemoteIpAddress?.ToString() ?? "desconocida");

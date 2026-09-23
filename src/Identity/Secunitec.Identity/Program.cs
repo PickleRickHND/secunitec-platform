@@ -17,6 +17,13 @@ using Secunitec.Identity;
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 builder.ConfigureSecunitecKestrel();
+// R19 (5.2): trazas, métricas y logs por OTLP; Npgsql y el driver de Mongo traen sus propias fuentes.
+builder.AddSecunitecTelemetry("secunitec-identity", telemetry =>
+{
+    telemetry.Sources.Add("Npgsql");
+    telemetry.Sources.Add("MongoDB.Driver");
+    telemetry.Meters.Add("Npgsql");
+});
 // CSP propia: las páginas de cuenta solo cargan recursos del mismo origen.
 builder.Services.AddSecunitecDefaults(headers =>
     headers.ContentSecurityPolicy = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'");

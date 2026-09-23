@@ -19,6 +19,14 @@ using Secunitec.BuildingBlocks.Security;
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 // R06 + límites de body y timeouts comunes a los tres servicios (etapa 1.1).
 builder.ConfigureSecunitecKestrel();
+// R19 (5.2): trazas gateway → billing → Postgres/Mongo, métricas del pool de Npgsql y facturas emitidas.
+builder.AddSecunitecTelemetry("secunitec-billing", telemetry =>
+{
+    telemetry.Sources.Add("Npgsql");
+    telemetry.Sources.Add("MongoDB.Driver");
+    telemetry.Meters.Add("Npgsql");
+    telemetry.Meters.Add(MetricasFacturacion.MeterName);
+});
 builder.Services.AddSecunitecDefaults();
 builder.Services.AddExceptionHandler<BillingExceptionHandler>();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));

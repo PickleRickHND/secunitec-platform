@@ -14,6 +14,8 @@
     <PackageVersion Include="Testcontainers" Version="4.15.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
+    <!-- 5.2: MetricCollector para verificar las métricas propias sin exportador. -->
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.10.0" />
   </ItemGroup>
 
   <ItemGroup Label="Billing">
@@ -34,5 +36,14 @@
     <PackageVersion Include="OpenIddict.EntityFrameworkCore" Version="7.7.1" />
     <PackageVersion Include="Yarp.ReverseProxy" Version="2.3.0" />
     <PackageVersion Include="RedisRateLimiting" Version="1.2.1" />
+  </ItemGroup>
+
+  <!-- 5.2 (Fase 4, R19): solo versiones estables. Las instrumentaciones de Redis y EF Core siguen en beta y no se usan:
+       Npgsql, MongoDB.Driver y YARP traen sus propias fuentes de trazas y métricas. -->
+  <ItemGroup Label="Observabilidad">
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.19.1" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.19.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.19.0" />
   </ItemGroup>
 </Project>
