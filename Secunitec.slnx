@@ -21,5 +21,7 @@
     <Project Path="tests/Secunitec.Billing.Domain.Tests/Secunitec.Billing.Domain.Tests.csproj" />
     <Project Path="tests/Secunitec.Billing.Application.Tests/Secunitec.Billing.Application.Tests.csproj" />
     <Project Path="tests/Secunitec.Billing.Infrastructure.Tests/Secunitec.Billing.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Secunitec.Gateway.Tests/Secunitec.Gateway.Tests.csproj" />
+    <Project Path="tests/Secunitec.Identity.Tests/Secunitec.Identity.Tests.csproj" />
   </Folder>
 </Solution>

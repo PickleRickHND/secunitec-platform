@@ -19,6 +19,9 @@
     <ProjectReference Include="../../BuildingBlocks/Secunitec.BuildingBlocks.AspNetCore/Secunitec.BuildingBlocks.AspNetCore.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Secunitec.Identity.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Update="Migrations\**\*.cs">
       <NoWarn>$(NoWarn);IDE0005;IDE0161;CA1861</NoWarn>
     </Compile>
