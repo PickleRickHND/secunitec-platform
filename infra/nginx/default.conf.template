@@ -1,0 +1,40 @@
+# Front-End de Secunitec (R09): SPA estática en nginx-unprivileged (non-root, puerto 8080).
+# __GATEWAY_URL__ se reemplaza al construir la imagen (src/Frontend/Dockerfile) con SECUNITEC_PUBLIC_URL: es el único
+# origen, además del propio, al que el SPA puede conectarse (CSP connect-src).
+# R06: nginx OSS no permite quitar la cabecera Server; server_tokens off oculta al menos la versión
+# (docs/04-hardening-verificacion.md).
+server_tokens off;
+
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+    charset utf-8;
+
+    gzip on;
+    gzip_types text/css application/javascript image/svg+xml application/json;
+
+    # add_header no se hereda en un location que declara el suyo: por eso cada location incluye las cabeceras.
+    include /etc/nginx/snippets/security-headers.conf;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Archivos con hash de Vite: inmutables.
+    location /assets/ {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # Rutas del SPA (react-router): todo lo que no es un archivo sirve index.html, sin caché.
+    location / {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "no-store" always;
+        try_files $uri /index.html;
+    }
+}
