@@ -14,5 +14,6 @@
     <Project Path="tests/Secunitec.BuildingBlocks.Tests/Secunitec.BuildingBlocks.Tests.csproj" />
     <Project Path="tests/Secunitec.Billing.Domain.Tests/Secunitec.Billing.Domain.Tests.csproj" />
     <Project Path="tests/Secunitec.Billing.Application.Tests/Secunitec.Billing.Application.Tests.csproj" />
+    <Project Path="tests/Secunitec.Billing.Infrastructure.Tests/Secunitec.Billing.Infrastructure.Tests.csproj" />
   </Folder>
 </Solution>

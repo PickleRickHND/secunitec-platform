@@ -1,10 +1,15 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Secunitec.Billing.Application;
 using StackExchange.Redis;
 
 namespace Secunitec.Billing.Infrastructure;
 
-public sealed class RedisInvoiceCache(IConnectionMultiplexer redis) : IInvoiceCache
+/// <summary>
+/// Caché del listado de facturas. Es una optimización: si Redis falla se registra un warning y se sigue contra
+/// Postgres, en vez de convertir una caída de Redis en un 500 (R18).
+/// </summary>
+public sealed partial class RedisInvoiceCache(IConnectionMultiplexer redis, ILogger<RedisInvoiceCache> logger) : IInvoiceCache
 {
     private readonly IDatabase _db = redis.GetDatabase();
 
@@ -19,19 +24,45 @@ public sealed class RedisInvoiceCache(IConnectionMultiplexer redis) : IInvoiceCa
     public async Task<IReadOnlyList<FacturaResumen>?> ObtenerListado(Guid tenantId, Guid? clienteId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        RedisValue json = await _db.StringGetAsync(await ListKey(tenantId, clienteId));
-        return json.HasValue ? JsonSerializer.Deserialize<FacturaResumen[]>(json.ToString()) : null;
+        try
+        {
+            RedisValue json = await _db.StringGetAsync(await ListKey(tenantId, clienteId));
+            return json.HasValue ? JsonSerializer.Deserialize<FacturaResumen[]>(json.ToString()) : null;
+        }
+        catch (Exception ex) when (ex is RedisException or TimeoutException)
+        {
+            CacheNoDisponible(logger, nameof(ObtenerListado), ex);
+            return null;
+        }
     }
 
     public async Task GuardarListado(Guid tenantId, Guid? clienteId, IReadOnlyList<FacturaResumen> facturas, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await _db.StringSetAsync(await ListKey(tenantId, clienteId), JsonSerializer.Serialize(facturas), TimeSpan.FromSeconds(30));
+        try
+        {
+            await _db.StringSetAsync(await ListKey(tenantId, clienteId), JsonSerializer.Serialize(facturas), TimeSpan.FromSeconds(30));
+        }
+        catch (Exception ex) when (ex is RedisException or TimeoutException)
+        {
+            CacheNoDisponible(logger, nameof(GuardarListado), ex);
+        }
     }
 
     public async Task Invalidar(Guid tenantId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await _db.StringIncrementAsync(VersionKey(tenantId));
+        try
+        {
+            await _db.StringIncrementAsync(VersionKey(tenantId));
+        }
+        catch (Exception ex) when (ex is RedisException or TimeoutException)
+        {
+            // La escritura en Postgres ya se confirmó; en el peor caso el listado viejo vive hasta su TTL de 30 s.
+            CacheNoDisponible(logger, nameof(Invalidar), ex);
+        }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Redis no disponible en {Operacion}; se continúa sin caché.")]
+    private static partial void CacheNoDisponible(ILogger logger, string operacion, Exception exception);
 }
