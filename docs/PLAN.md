@@ -5,7 +5,7 @@
 | Curso | Arquitectura de Sistemas Informáticos, UNITEC, Q3-2026 (Prof. Kevin Fúnez) |
 | Proyecto | Arquitectura y Ciberseguridad: Auditoría, Diseño y Resiliencia para Secunitec Corp. |
 | Repositorio | `PickleRickHND/secunitec-platform` (público, monorepo) |
-| Estado | Aprobado; etapas 1 a 4 completas (1.1 a 4.2); etapa 5 en curso en la rama `feature/5-evidencia` (5.2 y 5.3 listas, 5.1 en revisión, 5.4 después) |
+| Estado | Aprobado; etapas 1 a 4 completas (1.1 a 4.2); etapa 5 en curso en la rama `feature/5-evidencia` (5.1, 5.2 y 5.3 listas; 5.4 después) |
 | Última actualización | 2026-09-23 |
 
 Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué decidimos, cómo se estructura el repo y en qué orden se construye. Cada requisito tiene un ID (`R01`...) que se referencia desde el código, los diagramas y las pruebas para demostrar la "coherencia estricta" que exige el criterio de evaluación (a).
@@ -45,6 +45,7 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | Métrica del `Retry-After` (5.2) | Histograma `secunitec.gateway.retry_after` además de los dos contadores del plan | Solo los contadores | El panel "Retry-After" del criterio de 5.2 necesitaba el dato |
 | Pool de YARP (5.3) | Las conexiones inactivas se sueltan a los 30 s, la mitad del keep-alive de 60 s de los servicios internos | Subir el keep-alive interno | La rampa de JMeter dio 3 respuestas 502. La ventana fija de 60 s dejaba a Billing inactivo justo 60 s y YARP reusaba conexiones que Kestrel estaba cerrando |
 | Pools de Npgsql (5.3) | `Maximum Pool Size` 50 en Billing y 20 en Identity: suman 70, dentro de las 97 conexiones que deja Postgres | Subir `max_connections`; limitar la concurrencia de Billing | El pico dio 33 respuestas 500 (53300) al abrirse cada ventana. Con el pool lleno la petición espera en vez de fallar |
+| Fase 1 fuera del repo (5.1) | Los diagramas (draw.io y OWASP Threat Dragon) y los documentos de amenazas, OWASP y trazabilidad viven en la carpeta del equipo, con el informe | `docs/01`, `docs/02-securuml/` (Mermaid + PlantUML), `docs/03` y `docs/trazabilidad.md` en el repo | Decisión del equipo: el repo lleva el sistema y su verificación; la Fase 1 se entrega con el informe. El STRIDE por componente se hizo en Threat Dragon (herramienta de OWASP) y los UML en draw.io, que ya usaba el equipo |
 
 ---
 
@@ -64,9 +65,9 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | R10 | Visualización en tiempo real de bloqueos 429 | Componente 5 | Panel de resiliencia del SPA |
 | R11 | `docker-compose.yml` unificado que levanta todo | Fase 2 | raíz del repo |
 | R12 | Redes aisladas | Fase 2 | redes `edge`, `backend`, `data`, `observability` |
-| R13 | Modelado de amenazas STRIDE por componente | Fase 1 | `docs/01-modelado-amenazas-stride.md` |
-| R14 | SecurUML: RBAC/ABAC y trust boundaries en UML | Fase 1 | `docs/02-securuml/` |
-| R15 | Mapeo de riesgos a OWASP Top 10 | Fase 1 | `docs/03-owasp-top10-mapeo.md` |
+| R13 | Modelado de amenazas STRIDE por componente | Fase 1 | `01-modelado-amenazas-stride.md` y diagrama 05 (Threat Dragon), fuera del repo (§0) |
+| R14 | SecurUML: RBAC/ABAC y trust boundaries en UML | Fase 1 | Diagramas 01-03 y 06-09 (draw.io), fuera del repo (§0) |
+| R15 | Mapeo de riesgos a OWASP Top 10 | Fase 1 | `03-owasp-top10-mapeo.md` y diagrama 04, fuera del repo (§0) |
 | R16 | Plan JMeter de alta concurrencia contra gateway y microservicios | Fase 3 | `tests/jmeter/` |
 | R17 | Telemetría con `docker stats` y Método USE | Fase 3 | `scripts/stress/`, `docs/05-pruebas-estres-use.md` |
 | R18 | Evidencia empírica: 429 controlados en vez de 500 | Fase 3 | informe USE + dashboards Grafana |
@@ -220,7 +221,7 @@ Atributos (ABAC) en el JWT: `tenant_id` (= `ObligadoId`) y `cliente_id` cuando e
 
 ## 4. Controles de seguridad (mapa preliminar STRIDE → control → OWASP)
 
-Se detalla en `docs/01`, `docs/03` y `docs/trazabilidad.md` con `archivo:línea` cuando exista el código.
+Se detalla en los documentos de la Fase 1 (`01-modelado-amenazas-stride.md`, `03-owasp-top10-mapeo.md` y `trazabilidad.md`), con `archivo:línea` y la prueba de cada control. El equipo los guarda con el informe, fuera del repo (§0).
 
 | STRIDE | Componente | Amenaza | Control | OWASP Top 10 (2021) |
 |---|---|---|---|---|
@@ -288,17 +289,12 @@ secunitec-platform/
 │   ├── stress/capture-docker-stats.sh     # docker stats → CSV cada segundo
 │   ├── stress/analizar.py                 # gráficas 429 vs 5xx y tabla USE (matplotlib, requirements.txt)
 │   ├── verify-hardening.sh                # curl, docker inspect/top, redes; --report escribe docs/04
-│   ├── verify-observability.sh            # 5.2: tráfico real → Prometheus, Tempo y Loki; --report escribe docs/evidencia/5.2
-│   └── export-diagrams.sh                 # draw.io → PNG/SVG para el informe (5.1)
+│   └── verify-observability.sh            # 5.2: tráfico real → Prometheus, Tempo y Loki; --report escribe docs/evidencia/5.2
 ├── docs/
 │   ├── PLAN.md                            # este documento
-│   ├── 01-modelado-amenazas-stride.md
-│   ├── 02-securuml/                       # .mmd, .puml y exportados
-│   ├── 03-owasp-top10-mapeo.md
 │   ├── 04-hardening-verificacion.md
 │   ├── 05-pruebas-estres-use.md
 │   ├── 06-innovacion-opentelemetry.md
-│   ├── trazabilidad.md                    # R → amenaza → OWASP → archivo:línea → prueba
 │   ├── evidencia/                         # capturas y reportes generados de 5.2 y 5.3
 │   ├── informe/                           # DOCX final y fuentes
 │   └── presentacion/                      # PPTX final
