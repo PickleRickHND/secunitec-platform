@@ -33,6 +33,9 @@ public static class SecunitecJwtBearerExtensions
         options.Audience = SecunitecAudiences.Billing;
         options.MapInboundClaims = false;
         options.RequireHttpsMetadata = !environment.IsDevelopment();
+        // Ante un kid desconocido (Identity reiniciado con llaves nuevas) se vuelve a pedir el JWKS; por defecto
+        // JwtBearer espera 5 min entre refrescos y los tokens nuevos se rechazarían ese tiempo.
+        options.RefreshInterval = TimeSpan.FromSeconds(30);
 
         string? internalAuthority = configuration["Jwt:InternalAuthority"];
         if (!string.IsNullOrWhiteSpace(internalAuthority))
