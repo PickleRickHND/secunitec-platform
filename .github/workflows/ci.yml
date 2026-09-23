@@ -1,5 +1,5 @@
-# CI base (Etapa 1.1): build + tests .NET y escaneo de secretos.
-# Front, `docker compose config` y auditoría de dependencias se agregan en las etapas 2.1, 4.1 y 4.2.
+# CI (etapas 1.1 a 4.2): build + tests .NET, Front-End, auditoría de dependencias, compose y escaneo de secretos.
+# Los E2E (Playwright) corren contra el compose levantado en local: ver docs/ETAPA_4_1_FRONTEND.md.
 name: CI
 
 on:
@@ -31,13 +31,21 @@ jobs:
           global-json-file: global.json
 
       - name: Restore
-        run: dotnet restore Secunitec.slnx
+        run: dotnet restore Secunitec.slnx && dotnet tool restore
 
       - name: Build (warnings como errores)
         run: dotnet build Secunitec.slnx -c Release --no-restore
 
       - name: Formato
         run: dotnet format Secunitec.slnx --verify-no-changes --no-restore
+
+      # EF 9+ lanza al arrancar si el modelo no coincide con el snapshot: una migración olvidada tumbaría el servicio.
+      - name: Migraciones al día con el modelo
+        run: |
+          dotnet dotnet-ef migrations has-pending-model-changes --configuration Release --no-build \
+            -p src/Billing/Secunitec.Billing.Infrastructure -s src/Billing/Secunitec.Billing.Infrastructure
+          dotnet dotnet-ef migrations has-pending-model-changes --configuration Release --no-build \
+            -p src/Identity/Secunitec.Identity -s src/Identity/Secunitec.Identity
 
       - name: Test
         run: dotnet test Secunitec.slnx -c Release --no-build --results-directory TestResults -- --report-xunit-trx
@@ -48,6 +56,73 @@ jobs:
           name: test-results
           path: TestResults
           if-no-files-found: ignore
+
+  frontend:
+    name: Front-End lint + test + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.24.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            src/Frontend/pnpm-lock.yaml
+            tests/e2e/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+      - name: E2E compila (Playwright corre contra el compose en local)
+        working-directory: tests/e2e
+        run: pnpm install --frozen-lockfile && pnpm exec tsc --noEmit -p .
+
+      # Identity (Razor) usa una copia de los tokens de diseño del SPA: deben ser idénticos.
+      - name: Tokens de diseño sincronizados con Identity
+        working-directory: .
+        run: diff src/Frontend/src/styles/tokens.css src/Identity/Secunitec.Identity/wwwroot/account/assets/tokens.css
+
+  dependencias:
+    name: Dependencias vulnerables
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      # dotnet list package --vulnerable termina en 0 aunque encuentre vulnerables: se revisa el JSON.
+      - name: NuGet (directas y transitivas)
+        run: |
+          dotnet restore Secunitec.slnx
+          dotnet list Secunitec.slnx package --vulnerable --include-transitive --format json > vulnerables.json
+          jq -r '.projects[].frameworks[]? | (.topLevelPackages // []) + (.transitivePackages // []) | .[] | select(.vulnerabilities) | "\(.id) \(.resolvedVersion)"' vulnerables.json | tee hallazgos.txt
+          test ! -s hallazgos.txt
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.24.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: pnpm audit (Front-End y E2E)
+        run: |
+          (cd src/Frontend && pnpm audit --audit-level=high)
+          (cd tests/e2e && pnpm audit --audit-level=high)
 
   gitleaks:
     name: Secretos (gitleaks)
@@ -66,5 +141,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Validar sintaxis y referencias del compose
+      - name: Validar sintaxis y referencias del compose (todos los perfiles)
         run: cp .env.example .env && docker compose --profile billing --profile security config --quiet
