@@ -14,7 +14,10 @@ namespace Secunitec.Identity;
 
 public static class ConnectEndpoints
 {
-    /// <summary>Única aplicación autorizada para client credentials (pruebas de carga).</summary>
+    /// <summary>
+    /// Aplicación de client credentials del tenant de ejemplo. Los clientes de carga de la etapa 5.3
+    /// (<c>jmeter-load-NN</c>, solo en Development) están en <see cref="JmeterClients"/>.
+    /// </summary>
     public const string JmeterClientId = "jmeter-load";
 
     public static IEndpointRouteBuilder MapConnectEndpoints(this IEndpointRouteBuilder app)
@@ -71,7 +74,8 @@ public static class ConnectEndpoints
         SignInManager<ApplicationUser> signIn,
         IdentityPrincipalFactory principals,
         IOpenIddictApplicationManager applications,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         OpenIddictRequest request = context.GetOpenIddictServerRequest()
             ?? throw new InvalidOperationException("Solicitud OAuth inválida.");
@@ -98,18 +102,18 @@ public static class ConnectEndpoints
 
         if (request.IsClientCredentialsGrantType())
         {
-            if (!string.Equals(request.ClientId, JmeterClientId, StringComparison.Ordinal))
+            // Solo el conjunto exacto de clientes configurados (JmeterClients), nunca un prefijo.
+            if (!JmeterClients.IsAuthorized(request.ClientId, configuration, environment))
             {
                 return Results.Forbid(authenticationSchemes: [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
             }
 
-            Guid tenantId = Guid.Parse(
-                configuration["Identity:JmeterTenantId"]
-                    ?? throw new InvalidOperationException("Configure Identity:JmeterTenantId."),
-                CultureInfo.InvariantCulture);
+            string clientId = request.ClientId!;
+            Guid tenantId = JmeterClients.TenantOf(clientId, configuration);
 
-            // OpenIddict ya autenticó al cliente con su secreto antes de llegar aquí.
-            object application = await applications.FindByClientIdAsync(JmeterClientId)
+            // OpenIddict ya autenticó al cliente con su secreto antes de llegar aquí. El sub es el id de su aplicación:
+            // cada cliente de carga tiene su propia partición en el rate limiting del gateway.
+            object application = await applications.FindByClientIdAsync(clientId)
                 ?? throw new InvalidOperationException("La aplicación autenticada no existe.");
             Guid applicationId = Guid.Parse(
                 await applications.GetIdAsync(application)
@@ -117,7 +121,7 @@ public static class ConnectEndpoints
                 CultureInfo.InvariantCulture);
 
             ClaimsPrincipal principal = principals.CreateClient(
-                applicationId, JmeterClientId, tenantId, SecunitecRoles.Facturador, request.GetScopes());
+                applicationId, clientId, tenantId, SecunitecRoles.Facturador, request.GetScopes());
             return Results.SignIn(principal, authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         }
 

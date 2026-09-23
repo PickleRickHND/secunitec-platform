@@ -69,6 +69,59 @@ public sealed partial class IdentityTests : IClassFixture<IdentityFactory>
         Assert.Equal(ConnectEndpoints.JmeterClientId, token.GetClaim(SecunitecClaims.ClientId).Value);
     }
 
+    // 5.3: cada cliente de carga tiene su propio sub (su partición en el rate limiting) y escribe en el tenant de carga.
+    [Fact]
+    public async Task ClientCredentials_ClienteDeCarga_TieneSuPropioSubYElTenantDeCarga()
+    {
+        SkipWithoutDocker();
+        using HttpClient client = _factory.CreateHttpsClient();
+
+        JsonWebToken principal = await ClientCredentialsToken(client, ConnectEndpoints.JmeterClientId);
+        JsonWebToken carga2 = await ClientCredentialsToken(client, "jmeter-load-02");
+        JsonWebToken carga3 = await ClientCredentialsToken(client, "jmeter-load-03");
+
+        Assert.Equal(3, new[] { principal.Subject, carga2.Subject, carga3.Subject }.Distinct().Count());
+        Assert.Equal(IdentityFactory.TenantId.ToString(), principal.GetClaim(SecunitecClaims.TenantId).Value);
+        Assert.Equal(IdentityFactory.LoadTenantId.ToString(), carga2.GetClaim(SecunitecClaims.TenantId).Value);
+        Assert.Equal("jmeter-load-02", carga2.GetClaim(SecunitecClaims.ClientId).Value);
+        Assert.Equal(SecunitecRoles.Facturador, carga3.GetClaim(SecunitecClaims.Role).Value);
+    }
+
+    [Fact]
+    public async Task ClientCredentials_ClienteDeCargaNoConfigurado_NoRecibeToken()
+    {
+        SkipWithoutDocker();
+        using HttpClient client = _factory.CreateHttpsClient();
+
+        using HttpResponseMessage response = await client.PostAsync("/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = "jmeter-load-99",
+            ["client_secret"] = IdentityFactory.JmeterSecret,
+            ["scope"] = SecunitecAudiences.Billing,
+        }), Ct);
+
+        // OpenIddict rechaza al cliente antes de llegar a ConnectEndpoints: no existe una aplicación con ese id.
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        string body = await response.Content.ReadAsStringAsync(Ct);
+        Assert.Contains("invalid_client", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("access_token", body, StringComparison.Ordinal);
+    }
+
+    private static async Task<JsonWebToken> ClientCredentialsToken(HttpClient client, string clientId)
+    {
+        using HttpResponseMessage response = await client.PostAsync("/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = clientId,
+            ["client_secret"] = IdentityFactory.JmeterSecret,
+            ["scope"] = SecunitecAudiences.Billing,
+        }), Ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        return new JsonWebToken(body.RootElement.GetProperty("access_token").GetString());
+    }
+
     [Fact]
     public async Task Login_ContrasenaIncorrecta_QuedaAuditadoConIpYCorrelationId()
     {

@@ -112,6 +112,18 @@ using (IServiceScope scope = app.Services.CreateScope())
             Hoy(),
             CancellationToken.None);
     }
+
+    // Etapa 5.3: tenant de carga de los clientes jmeter-load-NN (mismo valor que Identity:JmeterLoadTenantId).
+    if (app.Environment.IsDevelopment() && app.Configuration["Billing:Seed:LoadTenantId"] is { Length: > 0 } loadTenant)
+    {
+        await BillingDemoSeeder.SeedLoadTenantAsync(
+            db,
+            Guid.Parse(loadTenant, CultureInfo.InvariantCulture),
+            Guid.Parse(app.Configuration["Billing:Seed:LoadClienteId"]
+                ?? throw new InvalidOperationException("Configure Billing:Seed:LoadClienteId."), CultureInfo.InvariantCulture),
+            Hoy(),
+            CancellationToken.None);
+    }
 }
 
 RouteGroupBuilder api = app.MapGroup("/api/billing");
