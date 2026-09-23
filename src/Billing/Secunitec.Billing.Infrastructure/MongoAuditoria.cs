@@ -18,6 +18,10 @@ public sealed partial class MongoAuditoria(IMongoDatabase database, ILogger<Mong
     public async Task Registrar(EventoAuditoria evento, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(evento);
+        // Fase 4: el evento también va al log (Loki), enlazado a su traza por el trace id y el CorrelationId del scope.
+        // TB3: sin actor, IP ni detalle; esos datos quedan solo en la auditoría de Mongo.
+        string resultado = Resultado(evento.Resultado);
+        EventoRegistrado(logger, evento.Accion, resultado, evento.Recurso);
         BsonDocument documento = new()
         {
             ["timestamp"] = evento.Timestamp.UtcDateTime,
@@ -25,7 +29,7 @@ public sealed partial class MongoAuditoria(IMongoDatabase database, ILogger<Mong
             ["actor"] = evento.Actor is Guid actor ? actor.ToString("D") : BsonNull.Value,
             ["accion"] = evento.Accion,
             ["recurso"] = (BsonValue?)evento.Recurso ?? BsonNull.Value,
-            ["resultado"] = Resultado(evento.Resultado),
+            ["resultado"] = resultado,
             ["ip"] = (BsonValue?)evento.Ip ?? BsonNull.Value,
             ["correlationId"] = (BsonValue?)evento.CorrelationId ?? BsonNull.Value,
             ["detalle"] = (BsonValue?)evento.Detalle ?? BsonNull.Value,
@@ -159,6 +163,9 @@ public sealed partial class MongoAuditoria(IMongoDatabase database, ILogger<Mong
         ResultadoAuditoria.Fallido => "fallido",
         _ => "exito",
     };
+
+    [LoggerMessage(EventId = 2203, Level = LogLevel.Information, Message = "Auditoría: {Accion} ({Resultado}) sobre {Recurso}.")]
+    private static partial void EventoRegistrado(ILogger logger, string accion, string resultado, string? recurso);
 
     [LoggerMessage(EventId = 2201, Level = LogLevel.Warning, Message = "No se pudo registrar el evento de auditoría {Accion} de Billing.")]
     private static partial void AuditoriaNoDisponible(ILogger logger, string accion, Exception exception);

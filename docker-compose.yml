@@ -175,7 +175,6 @@ services:
       # Valida el issuer público y descarga el JWKS de Identity por la red interna.
       Jwt__Authority: ${SECUNITEC_PUBLIC_URL:-https://localhost:8080}/
       Jwt__InternalAuthority: http://identity:8080/
-      Billing__TestJwtKey: ${BILLING_TEST_JWT_KEY:-}
       # Development: obligado y cliente de demostración en el tenant de ejemplo (el cliente del usuario cliente@).
       Billing__Seed__TenantId: ${IDENTITY_SEED_ADMIN_TENANT_ID:-}
       Billing__Seed__ClienteId: ${SEED_CLIENTE_ID:-00000000-0000-0000-0000-0000000000c1}

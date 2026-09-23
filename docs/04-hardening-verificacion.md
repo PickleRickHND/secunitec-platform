@@ -4,8 +4,8 @@ Generado por `scripts/verify-hardening.sh --report`: no editar a mano. Cada cont
 
 | Campo | Valor |
 |---|---|
-| Fecha | 2026-09-23 16:57 UTC |
-| Commit | `dd38abf` (con cambios sin commitear) |
+| Fecha | 2026-09-23 19:44 UTC |
+| Commit | `e6fa4a8` |
 | Docker | 29.8.0, Compose 5.5.1 |
 | Gateway / SPA | https://localhost:8080 / http://localhost:3000 |
 | Archivos de compose | `docker-compose.yml:docker-compose.observability.yml` |
@@ -176,7 +176,7 @@ x-frame-options: DENY
 referrer-policy: no-referrer
 permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 content-security-policy: default-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'
-x-correlation-id: 0490b82255b96ee2b645b17945e98a45
+x-correlation-id: d73698d5526a2940e314d9505a7f87fc
 ```
 
 ### R03: discovery
@@ -212,7 +212,7 @@ x-frame-options: DENY
 referrer-policy: no-referrer
 permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 content-security-policy: default-src 'none'; frame-ancestors 'none'
-x-correlation-id: 27a9d2b4d9290dbcca4da9c4e66206e0
+x-correlation-id: 9d8972ea886bcf16534195ac8d6a2af9
 ```
 
 ### Front-End: nginx sin privilegios con CSP
@@ -312,17 +312,17 @@ x-frame-options: DENY
 referrer-policy: no-referrer
 permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 content-security-policy: default-src 'none'; frame-ancestors 'none'
-x-correlation-id: ac6ae346d161bcf384fefa6933af6738
+x-correlation-id: 02628392cdeb2ede72abd6d1c243c0fc
 {"error":"rate_limited","retry_after":60}
 ```
 
 ```console
 $ redis-cli --scan --pattern '*secunitec:rl:*' | head -5
-rl:fw:{secunitec:rl:user-by-sub:sub:01a0ce69-6e46-7786-93b7-17348532816d}:exp
-rl:fw:{secunitec:rl:user-by-sub:ip:::ffff:172.22.0.1}:exp
-rl:fw:{secunitec:rl:token-endpoint:ip:::ffff:172.22.0.1}:exp
-rl:fw:{secunitec:rl:token-endpoint:ip:::ffff:172.22.0.1}
 rl:fw:{secunitec:rl:user-by-sub:sub:01a0ce69-6e46-7786-93b7-17348532816d}
+rl:fw:{secunitec:rl:user-by-sub:ip:::ffff:172.22.0.1}
+rl:fw:{secunitec:rl:token-endpoint:ip:::ffff:172.22.0.1}
+rl:fw:{secunitec:rl:anon-by-ip:ip:::ffff:172.22.0.1}:exp
+rl:fw:{secunitec:rl:user-by-sub:ip:::ffff:172.22.0.1}:exp
 ```
 
 ## Limitaciones conocidas

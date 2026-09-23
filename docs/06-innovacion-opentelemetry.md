@@ -23,10 +23,10 @@ El código se instrumenta una vez y el destino se elige en el collector, sin toc
 | Demostrar ante el comité que el gateway devuelve 429 controlados y no 500 (R18) | Métricas en vivo de 2xx, 429 y 5xx por segundo; la prueba de estrés (5.3) queda registrada en Prometheus, no solo en el reporte de JMeter |
 | Aplicar el Método USE por recurso (R17) | cAdvisor (CPU, memoria, red y throttling por contenedor) más las métricas del runtime de .NET y del pool de Npgsql |
 | Encontrar dónde se va el tiempo de una factura lenta | Una traza cruza gateway → billing → Postgres/Mongo con la duración de cada consulta |
-| Unir la auditoría (Mongo) con lo que pasó en la plataforma | El `X-Correlation-Id` viaja como atributo de la traza (`secunitec.correlation_id`) y en los logs |
+| Unir la auditoría (Mongo) con lo que pasó en la plataforma | El `X-Correlation-Id` viaja como atributo de la traza (`secunitec.correlation_id`) y en los logs. Cada evento de auditoría de Billing e Identity también es un log, enlazado a su traza |
 | No atarse a un proveedor | OTLP es neutral: el mismo código podría enviar a Grafana Cloud, Datadog o Azure Monitor cambiando solo el collector |
 
-**Ventaja competitiva.** Una empresa de seguridad que vende confianza puede mostrar evidencia en tiempo real (tableros, trazas, alertas) en vez de afirmaciones. El tiempo de diagnóstico (MTTR) baja, porque se pasa de un 429 o de una factura lenta a su traza y a sus logs en un clic. Además, el mismo stack sirve para alertar sobre abuso: un pico de `secunitec_gateway_rate_limited_total` es un intento de saturación en curso.
+**Ventaja competitiva.** Una empresa de seguridad que vende confianza puede mostrar evidencia en tiempo real (tableros y trazas) en vez de afirmaciones. El tiempo de diagnóstico (MTTR) baja: de una factura lenta se pasa a su traza, y de la traza a los eventos de auditoría que produjo, en un clic. Los 429 se ven como métrica y como traza. El mismo stack permitiría agregar alertas sobre abuso, porque un pico de `secunitec_gateway_rate_limited_total` es un intento de saturación en curso; en este prototipo no hay reglas de alerta configuradas.
 
 ## 2. Arquitectura
 
@@ -57,7 +57,7 @@ flowchart LR
 
 - **Archivo aparte y perfil opcional.** Todo vive en `docker-compose.observability.yml`, con el perfil `observability`. El compose principal sigue funcionando igual sin él.
 - **TB3 (servicios → observabilidad).** Solo la cruza el collector. Está en `backend` para recibir OTLP y en `observability` para repartir (`docker-compose.observability.yml:53`). Identity y Billing no cambian de red ni ganan salida a Internet.
-- **`observability` es `internal: true`** (`docker-compose.yml:257`). Collector, Prometheus, Tempo, Loki y cAdvisor no tienen salida ni puertos publicados.
+- **`observability` es `internal: true`** (`docker-compose.yml:266-267`). Collector, Prometheus, Tempo, Loki y cAdvisor no tienen salida ni puertos publicados.
 - **Grafana** también se une a `edge`, solo para publicar `127.0.0.1:3001` (`docker-compose.observability.yml:185`).
 
 | Componente | Imagen | Rol |
@@ -77,6 +77,7 @@ flowchart LR
 - **ASP.NET Core y HttpClient.** Sin `/health`, filtrado en `TelemetryExtensions.cs:86`.
 - **Meters integrados:** `System.Runtime`, `Microsoft.AspNetCore.RateLimiting` y `Microsoft.AspNetCore.Diagnostics`.
 - **Logs OTLP con scopes:** el correlation id llega a Loki (`TelemetryExtensions.cs:107`).
+- **Qué se registra:** el arranque, las fallas (Redis o Mongo no disponibles, respaldo del rate limiting) y un log Information por cada evento de auditoría de Billing e Identity (`MongoAuditoria.cs`, `IdentityAuditWriter.cs`). Esos logs llevan la acción, el resultado y el recurso, pero no el actor, la IP ni el detalle, que quedan solo en Mongo. Las peticiones normales y los 429 no escriben logs: bajo un ataque de miles de peticiones por segundo inundarían Loki, y ya están en las métricas y las trazas.
 - **Exportación opcional.** Solo exporta si existe `OTEL_EXPORTER_OTLP_ENDPOINT` (`TelemetryExtensions.cs:111-115`). Los tests y el compose sin observabilidad no abren conexiones.
 
 | Servicio | Registro | Fuentes y meters propios |
@@ -127,7 +128,7 @@ Capturas con tráfico real: `docs/evidencia/5.2/grafana-*.png`. Se generan con `
 | Riesgo | Control | Evidencia |
 |---|---|---|
 | Un cliente de Internet fija el trace id o inyecta `baggage` en los servicios internos (spoofing de telemetría, confusión en la auditoría) | El gateway no extrae el contexto de traza entrante y abre siempre una traza nueva. Hay dos lectores del `traceparent`, y se reemplazan ambos: el propagador del hosting (DI) y el propagador global de OpenTelemetry, que la instrumentación de ASP.NET Core usa por su cuenta (`TelemetryExtensions.cs:69-71`, `EdgeTraceContextPropagators.cs`) | `GatewayTelemetryTests.cs:55`, verificado por mutación: sin el control, el trace id del cliente llega a Billing. `scripts/verify-observability.sh`: Tempo no tiene la traza con el id del cliente |
-| Datos sensibles en trazas o logs (tokens, query strings, cabeceras) | La instrumentación no registra cabeceras y redacta la query. El collector además borra `url.query`, `url.full`, `http.*.header.*` y `enduser.id` (`infra/otel/otel-collector.yaml:25-35`). Npgsql guarda el SQL parametrizado, nunca los valores; Mongo no guarda el texto de la consulta (default del driver) | `verify-observability.sh`: "ningún span con query string ni cabeceras HTTP" |
+| Datos sensibles en trazas o logs (tokens, query strings, cabeceras) | La instrumentación no registra cabeceras y redacta la query. El collector además borra `url.query`, `url.full`, `http.*.header.*` y `enduser.id` (`infra/otel/otel-collector.yaml:25-35`). Npgsql guarda el SQL parametrizado, nunca los valores; Mongo no guarda el texto de la consulta (default del driver). Los logs de auditoría no llevan actor, IP ni detalle | `verify-observability.sh`: "ningún span con query string ni cabeceras HTTP" y "el log de auditoría no lleva IP, actor ni detalle"; `MongoAuditoriaTests.cs`, `IdentityAuditWriterTests.cs` |
 | Acceso no autorizado a los tableros | Grafana con login, sin anónimos ni registro, sin llamadas a grafana.com, solo en `127.0.0.1:3001`. La contraseña viene de `.env` (`GRAFANA_ADMIN_PASSWORD`) | `verify-hardening.sh`, sección TB3 (401 sin credenciales, puerto y placeholder) |
 | Exfiltración desde la observabilidad | Red `observability` internal; solo el collector toca `backend` | `verify-hardening.sh`, R12 y TB3 |
 | Contenedores de observabilidad como punto de entrada | Hardening de 4.2 en los seis: sin root, `cap_drop: ALL`, solo lectura con tmpfs, `no-new-privileges` y límites de CPU, memoria y procesos | `docs/04-hardening-verificacion.md` (tabla de contenedores) |
@@ -136,8 +137,9 @@ Capturas con tráfico real: `docs/evidencia/5.2/grafana-*.png`. Se generan con `
 ## 7. Cómo levantarla y verificarla
 
 ```bash
-# .env: GRAFANA_ADMIN_PASSWORD (y opcional OTEL_TRACE_SAMPLE_RATIO)
-docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile security --profile observability up -d --build
+# .env: GRAFANA_ADMIN_PASSWORD, las líneas COMPOSE_FILE y COMPOSE_PROFILES de la observabilidad (.env.example)
+# y, opcional, OTEL_TRACE_SAMPLE_RATIO
+docker compose up -d --build
 scripts/verify-observability.sh --report   # genera tráfico y comprueba métricas, traza y logs
 scripts/verify-hardening.sh --report       # incluye los contenedores nuevos y los controles de TB3
 ```
@@ -150,6 +152,8 @@ Grafana queda en `http://localhost:3001` (usuario `admin`). La traza de una emis
 - Billing: ASP.NET Core;
 - seis consultas a Postgres (`db.system.name=postgresql`);
 - la inserción de auditoría en Mongo.
+
+Además, el log de ese evento de auditoría llega a Loki con el mismo correlation id y el trace id de la traza.
 
 Cuánto consume la observabilidad: con los límites del compose suma hasta 2.5 CPU y 2.5 GiB (collector 0.5/256M, Prometheus, Tempo, Loki y Grafana 0.5/512M cada uno, cAdvisor 0.25/256M).
 
@@ -166,3 +170,4 @@ Cuánto consume la observabilidad: con los límites del compose suma hasta 2.5 C
 | Métrica adicional | `secunitec.gateway.retry_after` | El panel "Retry-After" del criterio necesitaba el dato |
 | Grafana | 512M y `GOMEMLIMIT` | Con 256M terminaba por OOM al cargar los tres dashboards |
 | Verificación | `scripts/verify-observability.sh` | Hace reproducible el criterio de done en lugar de depender de capturas manuales |
+| Logs de auditoría (cierre de la etapa 5) | Un log Information por evento de auditoría, sin datos personales; sin logs por petición | Antes, los servicios solo escribían logs al arrancar o ante fallas, y el panel de logs de "Trazas" quedaba vacío con el sistema sano |

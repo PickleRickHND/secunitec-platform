@@ -176,20 +176,55 @@ check "TB0: Tempo no tiene ninguna traza con el trace id del cliente" "[ '$exter
 check "TB3: ningún span con query string ni cabeceras HTTP" "! echo \"$spans\" | grep -q SENSIBLE"
 
 section "Logs (Loki)"
-logs=$(grafana -G --data-urlencode 'query=sum by (service_name) (count_over_time({service_name=~"secunitec-.+"}[1h]))' \
+# Los servicios escriben logs al arrancar, ante fallas y, Billing e Identity, por cada evento de auditoría. La ventana
+# empieza con el arranque del más antiguo de los tres: tras horas sin fallas, el gateway no tiene logs recientes.
+window=$(for service in gateway identity billing; do
+    docker inspect "$(docker compose -f docker-compose.yml -f docker-compose.observability.yml ps -q "$service")" \
+        --format '{{.State.StartedAt}}' 2>/dev/null
+done | python3 -c "
+import sys
+from datetime import datetime, timezone
+starts = [datetime.fromisoformat(line[:19] + '+00:00') for line in sys.stdin if line.strip()]
+print(int((datetime.now(timezone.utc) - min(starts)).total_seconds()) + 60 if starts else 3600)")
+logs=$(grafana -G --data-urlencode "query=sum by (service_name) (count_over_time({service_name=~\"secunitec-.+\"}[${window}s]))" \
     "$GRAFANA/api/datasources/proxy/uid/loki/loki/api/v1/query" | python3 -c "
 import json, sys
 for s in json.load(sys.stdin)['data']['result']:
     print(s['metric']['service_name'], s['value'][1])")
-evidence "LogQL: sum by (service_name) (count_over_time({service_name=~\"secunitec-.+\"}[1h]))" "$logs"
+evidence "LogQL: sum by (service_name) (count_over_time({service_name=~\"secunitec-.+\"}[${window}s])) (desde el arranque)" "$logs"
 for service in gateway identity billing; do
     check "Loki recibe logs de secunitec-$service" "echo \"$logs\" | grep -qE '^secunitec-$service [1-9]'"
 done
+
+# La emisión de arriba deja un evento de auditoría: su log debe llegar con el correlation id y la traza de Tempo.
+audit=""
+for _ in $(seq 1 12); do
+    audit=$(grafana -G --data-urlencode "query={service_name=\"secunitec-billing\"} | CorrelationId=\"$CORRELATION\" | Accion=\"factura.emitida\"" \
+        --data-urlencode limit=5 --data-urlencode since=15m "$GRAFANA/api/datasources/proxy/uid/loki/loki/api/v1/query_range" |
+        python3 -c "
+import json, re, sys
+for s in json.load(sys.stdin)['data']['result']:
+    keys = {k.lower() for k in s['stream']}
+    for _, line in s['values']:
+        personal = sorted(keys & {'ip', 'actor', 'detalle', 'email'}) or re.findall(r'\b\d{1,3}(?:\.\d{1,3}){3}\b', line)
+        print(f\"trace_id={s['stream'].get('trace_id', '')} | {line}{' | PERSONAL ' + ','.join(personal) if personal else ''}\")" 2>/dev/null)
+    [ -n "$audit" ] && break
+    sleep 5
+done
+evidence "LogQL: {service_name=\"secunitec-billing\"} | CorrelationId=\"$CORRELATION\" | Accion=\"factura.emitida\"" "$audit"
+check "Loki: el evento de auditoría de la emisión llega con su correlation id" "echo \"$audit\" | grep -q 'factura.emitida (exito)'"
+check "Loki: el log lleva el trace id de su traza en Tempo" "[ -n '$trace_id' ] && echo \"$audit\" | grep -q 'trace_id=$trace_id'"
+check "TB3: el log de auditoría no lleva IP, actor ni detalle" "[ -n \"$audit\" ] && ! echo \"$audit\" | grep -q PERSONAL"
 
 echo
 echo "Resultado: $PASS PASS, $FAIL FAIL"
 
 if [ -n "$REPORT" ]; then
+    # Se calcula antes de reescribir el reporte, que si no aparecería siempre como cambio. Solo cuentan los cambios fuera de
+    # docs/: los reportes de evidencia no cambian lo que se verifica.
+    COMMIT=$(git rev-parse --short HEAD 2>/dev/null)
+    DIRTY=""
+    git diff --quiet -- . ':(exclude)docs' 2>/dev/null || DIRTY=" (con cambios sin commitear)"
     mkdir -p "$(dirname "$REPORT")"
     {
         echo "# 5.2 · Verificación de la observabilidad"
@@ -199,7 +234,7 @@ if [ -n "$REPORT" ]; then
         echo "| Campo | Valor |"
         echo "|---|---|"
         echo "| Fecha | $(date -u '+%Y-%m-%d %H:%M UTC') |"
-        echo "| Commit | \`$(git rev-parse --short HEAD 2>/dev/null)\`$(git diff --quiet 2>/dev/null || echo ' (con cambios sin commitear)') |"
+        echo "| Commit | \`$COMMIT\`$DIRTY |"
         echo "| Gateway / Grafana | $BASE / $GRAFANA |"
         echo "| Resultado | **$PASS PASS, $FAIL FAIL** |"
         echo

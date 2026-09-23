@@ -103,7 +103,7 @@ Tres corridas seguidas el 2026-09-23 entre las 10:21 y las 10:42 (hora de Hondur
 - **Rampa y pico.**
   - El gateway acepta exactamente la capacidad configurada: **10 peticiones por segundo**, 600 por minuto de los 10 clientes. Aceptó 6 000 en los 10 minutos de la rampa y 2 400 en las tres ventanas del pico.
   - Todo el excedente recibe **429 en milisegundos**: p50 de 1 a 2 ms, sin tocar Billing.
-  - El contador propio `secunitec_gateway_rate_limited_total` coincide con JMeter (873 795 frente a 869 903 en la rampa); la diferencia es la extrapolación de `increase()` en los bordes de la ventana.
+  - El contador propio `secunitec_gateway_rate_limited_total` coincide exactamente con JMeter. Entre el inicio y el fin de cada corrida, la partición `user-by-sub` sube 869 903 en la rampa y 851 938 en el pico, los mismos 429 que contó JMeter. Los valores de `resumen.md` (873 795 y 882 001) salen de `increase()`, que extrapola en los bordes de la ventana.
 - **R18 se cumple:** **0 respuestas 5xx y 0 fallas de conexión en 1 732 633 peticiones.**
 - **La latencia de las aceptadas en el pico sube a 1.3 a 1.9 s.** No es el rate limiting: es el costo de atender 600 peticiones que llegan juntas a un Billing de 0.5 CPU (sección 5). El gateway prioriza sobrevivir la ráfaga sin errores antes que la latencia de cada petición.
 
