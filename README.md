@@ -20,7 +20,7 @@ Este README es el tablero del proyecto: el plan por etapas, qué está hecho y q
 | | 4.2 Endurecer y verificar | A | **Completado** ([PR #4](https://github.com/PickleRickHND/secunitec-platform/pull/4)) |
 | 5 · Evidencia e informe | 5.1 Amenazas (STRIDE, SecurUML, OWASP) | Todos | Pendiente |
 | | 5.2 Telemetría (OpenTelemetry + Grafana) | C | **Completado** (rama `feature/5-evidencia`); ver [docs/06](docs/06-innovacion-opentelemetry.md) |
-| | 5.3 Pruebas de estrés (JMeter, USE) | C | Pendiente |
+| | 5.3 Pruebas de estrés (JMeter, USE) | C | **Completado** (rama `feature/5-evidencia`): 0 respuestas 5xx en 1.7 millones de peticiones; ver [docs/05](docs/05-pruebas-estres-use.md) |
 | | 5.4 Informe técnico y presentación | Todos | Pendiente |
 
 Pistas: **A** = Identity, Gateway, hardening · **B** = Billing y bases de datos · **C** = Frontend, telemetría, estrés. Las tres pistas avanzan en paralelo.
@@ -74,6 +74,20 @@ scripts/verify-hardening.sh --report         # incluye los contenedores nuevos y
 ```
 
 Grafana queda en `http://localhost:3001` (usuario `admin`), con los dashboards "Resiliencia del gateway", "USE Overview" y "Trazas". Detalle en [docs/06](docs/06-innovacion-opentelemetry.md).
+
+Pruebas de estrés (etapa 5.3). Requisitos:
+
+- JMeter 5.6 (`brew install jmeter`);
+- en `.env`, `IDENTITY_JMETER_LOAD_CLIENTS=10` y el tenant de carga;
+- la observabilidad levantada.
+
+```bash
+python3 -m venv .venv-stress && .venv-stress/bin/pip install -r scripts/stress/requirements.txt
+scripts/stress/run-jmeter.sh 01-baseline      # también 02-ramp-saturation y 03-spike
+.venv-stress/bin/python scripts/stress/analizar.py tests/jmeter/results/<fecha>-<plan> --evidencia docs/evidencia/5.3/<plan>
+```
+
+Resultados, tabla USE y los dos defectos que la prueba encontró y se corrigieron: [docs/05](docs/05-pruebas-estres-use.md).
 
 Con eso:
 

@@ -4,10 +4,10 @@ Generado por `scripts/verify-observability.sh --report`: no editar a mano. El sc
 
 | Campo | Valor |
 |---|---|
-| Fecha | 2026-09-23 15:25 UTC |
-| Commit | `efde803` (con cambios sin commitear) |
+| Fecha | 2026-09-23 16:55 UTC |
+| Commit | `dd38abf` (con cambios sin commitear) |
 | Gateway / Grafana | https://localhost:8080 / http://localhost:3001 |
-| Resultado | **28 PASS, 0 FAIL** |
+| Resultado | **29 PASS, 0 FAIL** |
 
 ## Checklist
 
@@ -31,6 +31,7 @@ Generado por `scripts/verify-observability.sh --report`: no editar a mano. El sc
 | Métricas (Prometheus) | cAdvisor: red por contenedor con el nombre del servicio | PASS |
 | Métricas (Prometheus) | Npgsql: métricas del pool de Billing e Identity | PASS |
 | Métricas (Prometheus) | Service graph: gateway → billing → postgres | PASS |
+| Trazas (Tempo) | Muestreo de trazas al 100 % (si no: recrear gateway, identity y billing sin OTEL_TRACE_SAMPLE_RATIO) | PASS |
 | Trazas (Tempo) | Traza encontrada por secunitec.correlation_id | PASS |
 | Trazas (Tempo) | La traza cruza gateway → billing | PASS |
 | Trazas (Tempo) | La traza llega a Postgres (db.system.name=postgresql) | PASS |
@@ -74,7 +75,7 @@ USE Overview
 ### Tráfico real a través del gateway
 
 ```console
-$ POST /api/billing/facturas (201) y POST .../5d2a4447-1f9d-4413-b7ef-d119c001ce4b/emitir con X-Correlation-Id: verify-otel-1790177125 y traceparent 00-0af7651916cd43dd8448eb211c80319c-...
+$ POST /api/billing/facturas (201) y POST .../766369b0-77c0-480d-9e95-9bfa9bf6fb0f/emitir con X-Correlation-Id: verify-otel-1790182475 y traceparent 00-0af7651916cd43dd8448eb211c80319c-...
 crear 201, emitir 200
 ```
 
@@ -88,51 +89,47 @@ $ 70 × GET /api/billing/facturas con el mismo token (partición user-by-sub, 60
 
 ```console
 $ PromQL: sum(secunitec_billing_invoices_emitted_total) antes y después
-8 -> 9
+78 -> 79
 ```
 
 ```console
 $ PromQL: sum(secunitec_gateway_rate_limited_total{policy="user-by-sub"}) antes y después
-152 -> 164
+3414670 -> 3414682
 ```
 
 ```console
 $ PromQL: series de red por contenedor (cAdvisor)
 container_label_com_docker_compose_service=postgres 10
 container_label_com_docker_compose_service=redis 10
-container_label_com_docker_compose_service=billing 11
-container_label_com_docker_compose_service=gateway 12
+container_label_com_docker_compose_service=gateway 24
+container_label_com_docker_compose_service=billing 22
 ```
 
 ```console
 $ PromQL: db_client_connection_max
-service_name=secunitec-billing 100
-service_name=secunitec-identity 100
-service_name=secunitec-billing 100
-service_name=secunitec-identity 100
+service_name=secunitec-billing 50
+service_name=secunitec-identity 20
+service_name=secunitec-billing 50
+service_name=secunitec-identity 20
 ```
 
 ```console
 $ PromQL: sum by (client, server) (traces_service_graph_request_total)
-client=secunitec-gateway server=secunitec-identity 8
-client=secunitec-gateway server=secunitec-billing 60
-client=user server=secunitec-gateway 88
-client=secunitec-billing server=postgres 16
-client=secunitec-billing server=mongo 4
-client=secunitec-billing server=secunitec_audit 4
-client=secunitec-identity server=postgres 4
-client=secunitec-billing server=secunitec-identity 2
-client=secunitec-identity server=secunitec_audit 4
-client=secunitec-identity server=mongo 4
+client=secunitec-gateway server=secunitec-identity 3
+client=secunitec-gateway server=secunitec-billing 2882
+client=user server=secunitec-gateway 432053
+client=secunitec-billing server=postgres 6814
+client=secunitec-billing server=mongo 557
+client=secunitec-billing server=secunitec_audit 557
+client=secunitec-identity server=postgres 7
+client=secunitec-identity server=secunitec_audit 1
+client=secunitec-identity server=mongo 1
 ```
 
 ### Trazas (Tempo)
 
 ```console
-$ Tempo: traza del correlation id verify-otel-1790177125 (91a5108f4b7a23b615108f3c69a47755): servicio | fuente | span | atributos
-secunitec-gateway | System.Net.Http | POST | 
-secunitec-gateway | Yarp.ReverseProxy | proxy.forwarder | 
-secunitec-gateway | Microsoft.AspNetCore | POST /api/billing/{**catch-all} | http.route=/api/billing/{**catch-all}
+$ Tempo: traza del correlation id verify-otel-1790182475 (bee9a9211a74366b7a50bb9b0adc76a7): servicio | fuente | span | atributos
 secunitec-billing | Npgsql | postgresql | db.system.name=postgresql
 secunitec-billing | Npgsql | postgresql | db.system.name=postgresql
 secunitec-billing | Npgsql | postgresql | db.system.name=postgresql
@@ -142,6 +139,9 @@ secunitec-billing | Npgsql | postgresql | db.system.name=postgresql
 secunitec-billing | MongoDB.Driver | insert | db.system.name=mongodb
 secunitec-billing | MongoDB.Driver | insert secunitec_audit.eventos | db.system.name=mongodb
 secunitec-billing | Microsoft.AspNetCore | POST /api/billing/facturas/{id:guid}/emitir | http.route=/api/billing/facturas/{id:guid}/emitir
+secunitec-gateway | System.Net.Http | POST | 
+secunitec-gateway | Yarp.ReverseProxy | proxy.forwarder | 
+secunitec-gateway | Microsoft.AspNetCore | POST /api/billing/{**catch-all} | http.route=/api/billing/{**catch-all}
 ```
 
 ```console
@@ -153,7 +153,7 @@ $ Tempo: GET /api/v2/traces/0af7651916cd43dd8448eb211c80319c (el trace id del cl
 
 ```console
 $ LogQL: sum by (service_name) (count_over_time({service_name=~"secunitec-.+"}[1h]))
-secunitec-billing 17
-secunitec-gateway 17
-secunitec-identity 11
+secunitec-billing 121
+secunitec-gateway 21
+secunitec-identity 18
 ```

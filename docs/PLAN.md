@@ -5,7 +5,7 @@
 | Curso | Arquitectura de Sistemas Informáticos, UNITEC, Q3-2026 (Prof. Kevin Fúnez) |
 | Proyecto | Arquitectura y Ciberseguridad: Auditoría, Diseño y Resiliencia para Secunitec Corp. |
 | Repositorio | `PickleRickHND/secunitec-platform` (público, monorepo) |
-| Estado | Aprobado; etapas 1 a 4 completas (1.1 a 4.2); etapa 5 en curso (5.2 lista; 5.3 y 5.1 en la rama `feature/5-evidencia`; 5.4 después) |
+| Estado | Aprobado; etapas 1 a 4 completas (1.1 a 4.2); etapa 5 en curso en la rama `feature/5-evidencia` (5.2 y 5.3 listas, 5.1 en revisión, 5.4 después) |
 | Última actualización | 2026-09-23 |
 
 Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué decidimos, cómo se estructura el repo y en qué orden se construye. Cada requisito tiene un ID (`R01`...) que se referencia desde el código, los diagramas y las pruebas para demostrar la "coherencia estricta" que exige el criterio de evaluación (a).
@@ -23,7 +23,7 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | NoSQL y caché | MongoDB 8 (auditoría de seguridad) + Redis 7 (contadores de rate limit y caché) | Solo Redis | Multi-modelo real y verificable, no decorativo |
 | Front-End | React 19 + Vite 8 + TypeScript, SPA estática servida por nginx non-root | Next.js, Blazor WASM | Interfaz desacoplada sin runtime en servidor; CSP estricta; sin tokens del lado servidor |
 | Flujo OAuth del SPA | Authorization Code + PKCE (`oidc-client-ts`) | Password grant (ROPC) | Es el flujo recomendado por el OAuth 2.0 Security BCP (RFC 9700); ROPC está desaconsejado |
-| Servicio a servicio / carga | Client Credentials (cliente confidencial `jmeter-load`) | Token hardcodeado | JMeter obtiene su token de forma estándar en un setup thread group |
+| Servicio a servicio / carga | Client Credentials (cliente confidencial `jmeter-load`; en 5.3, además `jmeter-load-01..10` solo en Development, en un tenant de carga) | Token hardcodeado; un solo cliente | JMeter obtiene sus tokens de forma estándar en un setup thread group. Cada cliente tiene su `sub` y su partición de 60/min, así la prueba no choca con una sola partición y no hace falta bajar los límites |
 | Fase 4 (innovación) | OpenTelemetry Collector + Prometheus + Tempo + Loki + Grafana + cAdvisor | mTLS, WAF Coraza, service mesh | Refuerza la Fase 3 con dashboards USE en vivo; muy demostrable ante el comité. mTLS queda como extensión opcional si sobra tiempo |
 | Imágenes runtime .NET | `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra` (distroless, non-root) | `aspnet:10.0-alpine` | Incluye tzdata para calcular la fecha de emisión en `America/Tegucigalpa`; sin shell ni gestor de paquetes |
 | Idioma | Documentación y comentarios en español; identificadores de código en inglés (convención .NET / React) | | |
@@ -43,6 +43,8 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | Instrumentación (5.2) | Solo paquetes OpenTelemetry estables; fuentes nativas de Npgsql, MongoDB.Driver y YARP | Instrumentaciones de Redis y EF Core | Siguen en beta (1.19.0-beta.1); las consultas a Postgres y Mongo aparecen igual en las trazas |
 | cAdvisor (5.2) | Sin root (uid 65534, grupo 0), con el socket de Docker en solo lectura y `pid: host` | Root o sin red por contenedor | La red por contenedor del USE lo exige; es un riesgo aceptado y documentado (docs/06, STRIDE) |
 | Métrica del `Retry-After` (5.2) | Histograma `secunitec.gateway.retry_after` además de los dos contadores del plan | Solo los contadores | El panel "Retry-After" del criterio de 5.2 necesitaba el dato |
+| Pool de YARP (5.3) | Las conexiones inactivas se sueltan a los 30 s, la mitad del keep-alive de 60 s de los servicios internos | Subir el keep-alive interno | La rampa de JMeter dio 3 respuestas 502. La ventana fija de 60 s dejaba a Billing inactivo justo 60 s y YARP reusaba conexiones que Kestrel estaba cerrando |
+| Pools de Npgsql (5.3) | `Maximum Pool Size` 50 en Billing y 20 en Identity: suman 70, dentro de las 97 conexiones que deja Postgres | Subir `max_connections`; limitar la concurrencia de Billing | El pico dio 33 respuestas 500 (53300) al abrirse cada ventana. Con el pool lleno la petición espera en vez de fallar |
 
 ---
 
@@ -269,8 +271,8 @@ secunitec-platform/
 │   ├── Secunitec.Gateway.Tests/           # 401, 429 + Retry-After, headers
 │   ├── Secunitec.Billing.Application.Tests/  # casos de uso con dobles en memoria
 │   ├── Secunitec.Billing.Infrastructure.Tests/  # caché con Redis caído y con el redis.conf real
-│   ├── e2e/                               # Playwright contra el compose
-│   └── jmeter/                            # 01-baseline.jmx, 02-ramp-saturation.jmx, 03-spike.jmx
+│   ├── e2e/                               # Playwright contra el compose (specs/grafana.spec.ts: capturas de 5.2 y 5.3)
+│   └── jmeter/                            # 01-baseline.jmx, 02-ramp-saturation.jmx, 03-spike.jmx (generar-planes.py) + secunitec.properties
 ├── infra/
 │   ├── postgres/init/01-databases.sql
 │   ├── mongo/setup/secunitec-setup.js     # usuarios, roles e índices (servicio mongo-setup, idempotente)
@@ -282,11 +284,12 @@ secunitec-platform/
 │   ├── loki/loki.yaml
 │   └── grafana/{provisioning/{datasources,dashboards},dashboards}/   # 3 dashboards provisionados (5.2)
 ├── scripts/
-│   ├── stress/run-jmeter.sh
+│   ├── stress/run-jmeter.sh               # plan + captura + reporte HTML + rango para Grafana
 │   ├── stress/capture-docker-stats.sh     # docker stats → CSV cada segundo
+│   ├── stress/analizar.py                 # gráficas 429 vs 5xx y tabla USE (matplotlib, requirements.txt)
 │   ├── verify-hardening.sh                # curl, docker inspect/top, redes; --report escribe docs/04
 │   ├── verify-observability.sh            # 5.2: tráfico real → Prometheus, Tempo y Loki; --report escribe docs/evidencia/5.2
-│   └── export-diagrams.sh                 # Mermaid → PNG/SVG para el informe
+│   └── export-diagrams.sh                 # draw.io → PNG/SVG para el informe (5.1)
 ├── docs/
 │   ├── PLAN.md                            # este documento
 │   ├── 01-modelado-amenazas-stride.md
@@ -418,7 +421,7 @@ Precisiones de 3.1: en los tokens de aplicación (client credentials) `sub` es e
 | Compatibilidad OpenIddict 7.7 con .NET 10 | Verificar changelog al iniciar H2; fallback a la última 6.x compatible |
 | `RedisRateLimiting` es un paquete comunitario | Verificado en 3.2. Si Redis falla, `ResilientRateLimiter` usa un limitador en memoria por instancia y registra un warning: 429 controlados, nunca 500 |
 | JMeter sale de una sola IP: un límite por IP bloquearía todo al instante | Particiones por `sub`/`client_id` cuando hay token; por IP solo para anónimos; el plan usa varios clientes y usuarios |
-| Difícil saturar en una laptop | `deploy.resources.limits` bajos para Billing (por ejemplo 0.5 CPU, 256 MB) para alcanzar saturación con cientos de hilos; documentar el porqué |
+| Difícil saturar en una laptop | `deploy.resources.limits` bajos para Billing (por ejemplo 0.5 CPU, 256 MB) para alcanzar saturación con cientos de hilos; documentar el porqué. Resultado de 5.3: con 1000 hilos se saturan el gateway (83 % de CPU en promedio) y Redis; Billing se satura en ráfagas al abrirse cada ventana, sin 5xx tras las dos correcciones de docs/05 |
 | Tiempo del equipo | Reparto por hitos (sección 11) y PRs pequeños |
 
 ---

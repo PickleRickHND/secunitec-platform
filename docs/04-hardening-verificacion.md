@@ -4,12 +4,12 @@ Generado por `scripts/verify-hardening.sh --report`: no editar a mano. Cada cont
 
 | Campo | Valor |
 |---|---|
-| Fecha | 2026-09-23 15:27 UTC |
-| Commit | `efde803` (con cambios sin commitear) |
+| Fecha | 2026-09-23 16:57 UTC |
+| Commit | `dd38abf` (con cambios sin commitear) |
 | Docker | 29.8.0, Compose 5.5.1 |
 | Gateway / SPA | https://localhost:8080 / http://localhost:3000 |
 | Archivos de compose | `docker-compose.yml:docker-compose.observability.yml` |
-| Resultado | **128 PASS, 0 FAIL** |
+| Resultado | **129 PASS, 0 FAIL** |
 
 ## Contenedores
 
@@ -156,6 +156,7 @@ Generado por `scripts/verify-hardening.sh --report`: no editar a mano. Cada cont
 | 2.1: Redis y Mongo | Redis: CONFIG deshabilitado | PASS |
 | 2.1: Redis y Mongo | Redis: FLUSHALL deshabilitado | PASS |
 | 2.1: Redis y Mongo | Mongo: billing_audit no puede borrar la auditoría | PASS |
+| 2.1: Redis y Mongo | R18: los pools de Npgsql caben en max_connections de Postgres | PASS |
 | R02: rate limiting (va al final: agota el cupo de /connect/token) | R02: ráfaga en /connect/token → 429 | PASS |
 | R02: rate limiting (va al final: agota el cupo de /connect/token) | R02: 429 con Retry-After | PASS |
 | R02: rate limiting (va al final: agota el cupo de /connect/token) | R02: 429 con {"error":"rate_limited"} | PASS |
@@ -175,7 +176,7 @@ x-frame-options: DENY
 referrer-policy: no-referrer
 permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 content-security-policy: default-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'
-x-correlation-id: bf7cadd904f5cc66c0417a57d678a700
+x-correlation-id: 0490b82255b96ee2b645b17945e98a45
 ```
 
 ### R03: discovery
@@ -211,7 +212,7 @@ x-frame-options: DENY
 referrer-policy: no-referrer
 permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 content-security-policy: default-src 'none'; frame-ancestors 'none'
-x-correlation-id: ff17c632e2859db081f9cb21e3096033
+x-correlation-id: 27a9d2b4d9290dbcca4da9c4e66206e0
 ```
 
 ### Front-End: nginx sin privilegios con CSP
@@ -291,6 +292,13 @@ $ mongosh 'mongodb://billing_audit:***@localhost/secunitec_audit' --eval 'db.eve
 not authorized on secunitec_audit to execute command { delete: 
 ```
 
+```console
+$ Maximum Pool Size de Billing e Identity (contenedores) contra max_connections - superuser_reserved_connections (Postgres)
+billing 50
+identity 20
+total 70 / disponibles 97
+```
+
 ### R02: rate limiting (va al final: agota el cupo de /connect/token)
 
 ```console
@@ -304,7 +312,7 @@ x-frame-options: DENY
 referrer-policy: no-referrer
 permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
 content-security-policy: default-src 'none'; frame-ancestors 'none'
-x-correlation-id: 8744550a1e911f4f912a5525ea1827ed
+x-correlation-id: ac6ae346d161bcf384fefa6933af6738
 {"error":"rate_limited","retry_after":60}
 ```
 
@@ -314,7 +322,7 @@ rl:fw:{secunitec:rl:user-by-sub:sub:01a0ce69-6e46-7786-93b7-17348532816d}:exp
 rl:fw:{secunitec:rl:user-by-sub:ip:::ffff:172.22.0.1}:exp
 rl:fw:{secunitec:rl:token-endpoint:ip:::ffff:172.22.0.1}:exp
 rl:fw:{secunitec:rl:token-endpoint:ip:::ffff:172.22.0.1}
-rl:fw:{secunitec:rl:user-by-sub:ip:::ffff:172.22.0.1}
+rl:fw:{secunitec:rl:user-by-sub:sub:01a0ce69-6e46-7786-93b7-17348532816d}
 ```
 
 ## Limitaciones conocidas
