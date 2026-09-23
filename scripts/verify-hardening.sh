@@ -230,6 +230,18 @@ mongo_delete=$(docker compose exec -T mongo sh -c 'mongosh --quiet "mongodb://bi
     "$(env_value MONGO_BILLING_PASSWORD)" 2>&1 | grep -oE 'not authorized[^"]*|deletedCount[^}]*' | head -1)
 evidence "mongosh 'mongodb://billing_audit:***@localhost/secunitec_audit' --eval 'db.eventos.deleteMany({})'" "$mongo_delete"
 check "Mongo: billing_audit no puede borrar la auditoría" "echo '$mongo_delete' | grep -q 'not authorized'"
+# R18 (etapa 5.3): los pools de Npgsql de Billing e Identity caben en las conexiones que Postgres admite; si no, una
+# ráfaga devuelve 500 (53300). Sin "Maximum Pool Size" en la cadena, Npgsql usa 100.
+pg_limits=$(docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d postgres -Atc "SELECT current_setting('"'"'max_connections'"'"')::int - current_setting('"'"'superuser_reserved_connections'"'"')::int"' 2>/dev/null | tr -d '\r')
+# Los tamaños salen de los contenedores en ejecución (la configuración real), no de un valor fijo en el script.
+pool_sizes=$(for service in billing identity; do
+    cadena=$(docker inspect "$(docker compose ps -q "$service")" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^ConnectionStrings__')
+    echo "$service $(echo "$cadena" | grep -oE 'Maximum Pool Size=[0-9]+' | cut -d= -f2 | grep . || echo 100)"
+done)
+pool_total=$(echo "$pool_sizes" | awk '{s += $2} END {print s + 0}')
+evidence "Maximum Pool Size de Billing e Identity (contenedores) contra max_connections - superuser_reserved_connections (Postgres)" "$pool_sizes
+total $pool_total / disponibles ${pg_limits:-?}"
+check "R18: los pools de Npgsql caben en max_connections de Postgres" "[ -n \"$pg_limits\" ] && [ \"$pool_total\" -le \"$pg_limits\" ]"
 
 section "R02: rate limiting (va al final: agota el cupo de /connect/token)"
 rejected=""
