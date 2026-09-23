@@ -28,3 +28,10 @@ export const usuarios = {
   auditor: { email: 'auditor@secunitec.local', password: requerido('IDENTITY_SEED_DEMO_PASSWORD') },
   cliente: { email: 'cliente@secunitec.local', password: requerido('IDENTITY_SEED_DEMO_PASSWORD') },
 } as const;
+
+/** Grafana (etapa 5.2): opcional, solo lo usan las capturas de los dashboards. */
+export const grafana = {
+  url: process.env.GRAFANA_URL ?? 'http://localhost:3001',
+  usuario: 'admin',
+  password: valores.GRAFANA_ADMIN_PASSWORD as string | undefined,
+} as const;
