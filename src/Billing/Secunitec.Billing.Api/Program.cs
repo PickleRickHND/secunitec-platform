@@ -11,7 +11,8 @@ using Secunitec.BuildingBlocks.Security;
 using StackExchange.Redis;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
-builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+// R06 + límites de body y timeouts comunes a los tres servicios (etapa 1.1).
+builder.ConfigureSecunitecKestrel();
 builder.Services.AddSecunitecDefaults();
 builder.Services.AddExceptionHandler<BillingExceptionHandler>();
 
