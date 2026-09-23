@@ -5,8 +5,8 @@ namespace Secunitec.BuildingBlocks.Tests.Security;
 
 public sealed class InternalAuthorityHandlerTests
 {
-    private static readonly Uri s_public = new("https://localhost:8080/");
-    private static readonly Uri s_internal = new("http://identity:8080/");
+    private static readonly Uri _publicAuthority = new("https://localhost:8080/");
+    private static readonly Uri _internalAuthority = new("http://identity:8080/");
 
     [Theory]
     [InlineData("https://localhost:8080/.well-known/openid-configuration", "http://identity:8080/.well-known/openid-configuration")]
@@ -33,7 +33,7 @@ public sealed class InternalAuthorityHandlerTests
     private static async Task<Uri?> SendThroughHandler(Uri requested)
     {
         using RecordingHandler recorder = new();
-        using InternalAuthorityHandler handler = new(s_public, s_internal, recorder);
+        using InternalAuthorityHandler handler = new(_publicAuthority, _internalAuthority, recorder);
         using HttpClient client = new(handler, disposeHandler: false);
 
         using HttpResponseMessage response = await client.GetAsync(requested, TestContext.Current.CancellationToken);
