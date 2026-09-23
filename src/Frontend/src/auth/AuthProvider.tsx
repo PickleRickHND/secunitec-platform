@@ -1,5 +1,5 @@
 import type { User } from 'oidc-client-ts';
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { configureHttp } from '../api/http';
 import { userManager } from './oidc';
 import { AuthContext, type Sesion } from './authContext';
@@ -10,9 +10,28 @@ const rutaActual = () => window.location.pathname + window.location.search;
 export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [cargando, setCargando] = useState(true);
+  // signoutRedirect() borra el usuario antes de salir hacia /connect/endsession. Ese userUnloaded hacía que RequireAuth
+  // pidiera un login nuevo cuya navegación a /connect/authorize le ganaba al cierre y, con la cookie de Identity aún
+  // viva, la persona volvía a entrar sin darse cuenta. Mientras se cierra la sesión no se inicia otra.
+  const saliendo = useRef(false);
 
   const iniciarSesion = useCallback(async (volverA: string = rutaActual()) => {
+    if (saliendo.current) {
+      return;
+    }
+
     await userManager.signinRedirect({ state: { volverA } });
+  }, []);
+
+  const cerrarSesion = useCallback(async () => {
+    saliendo.current = true;
+    try {
+      await userManager.signoutRedirect();
+    } catch {
+      // Sin respuesta de Identity los tokens locales igual quedaron borrados: se vuelve a la portada.
+      saliendo.current = false;
+      window.location.assign('/');
+    }
   }, []);
 
   const accessToken = useCallback(async () => {
@@ -79,10 +98,10 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
       email: typeof profile?.email === 'string' ? profile.email : null,
       clienteId: typeof profile?.cliente_id === 'string' ? profile.cliente_id : null,
       iniciarSesion,
-      cerrarSesion: () => userManager.signoutRedirect(),
+      cerrarSesion,
       accessToken,
     };
-  }, [user, cargando, iniciarSesion, accessToken]);
+  }, [user, cargando, iniciarSesion, cerrarSesion, accessToken]);
 
   return <AuthContext value={sesion}>{children}</AuthContext>;
 }

@@ -81,6 +81,19 @@ test.describe.serial('Fachada (etapa 4.1)', () => {
     await expect(page.getByRole('heading', { name: 'Su rol no tiene acceso a esta sección' })).toBeVisible();
   });
 
+  // Regresión: al borrar el usuario, RequireAuth pedía un login nuevo que le ganaba a /connect/endsession y, con la
+  // cookie de Identity aún viva, la persona volvía a entrar sin darse cuenta.
+  test('Cerrar sesión: termina también la sesión de Identity', async ({ page }) => {
+    await iniciarSesion(page, usuarios.facturador);
+
+    await page.getByRole('button', { name: 'Cerrar sesión' }).click();
+    await expect(page).toHaveURL('/');
+    await expect(page.getByRole('button', { name: 'Iniciar sesión' })).toBeVisible();
+
+    await page.goto('/inicio');
+    await expect(page).toHaveURL(/\/account\/login/);
+  });
+
   test('Panel de resiliencia: una ráfaga termina en 429 controlados y cero 5xx', async ({ page }) => {
     await iniciarSesion(page, usuarios.admin);
     await page.getByRole('link', { name: 'Resiliencia' }).click();
