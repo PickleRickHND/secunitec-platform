@@ -10,14 +10,14 @@ Este README es el tablero del proyecto: el plan por etapas, qué está hecho y q
 | Etapa | Punto | Pista | Estado |
 |---|---|---|---|
 | 1 · Cimientos (sin Docker) | 1.1 Proyecto base, reglas comunes y contrato del token | A | **Completado** ([PR #1](https://github.com/PickleRickHND/secunitec-platform/pull/1)) |
-| | 1.2 Reglas de facturación (`Billing.Domain`) | B | **Completado** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2) y etapa 4) |
-| | 1.3 Acciones de facturación (`Billing.Application`) | B | **Completado** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2) y etapa 4) |
-| 2 · Bases de datos (se enciende Docker) | 2.1 Postgres, Mongo y Redis en contenedores | B | **Completado** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2) y etapa 4) |
-| | 2.2 Facturación conectada y expuesta (`Infrastructure` + `Api`) | B | **Completado** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2) y etapa 4) |
+| | 1.2 Reglas de facturación (`Billing.Domain`) | B | **Completado** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2) y [PR #4](https://github.com/PickleRickHND/secunitec-platform/pull/4)) |
+| | 1.3 Acciones de facturación (`Billing.Application`) | B | **Completado** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2) y [PR #4](https://github.com/PickleRickHND/secunitec-platform/pull/4)) |
+| 2 · Bases de datos (se enciende Docker) | 2.1 Postgres, Mongo y Redis en contenedores | B | **Completado** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2) y [PR #4](https://github.com/PickleRickHND/secunitec-platform/pull/4)) |
+| | 2.2 Facturación conectada y expuesta (`Infrastructure` + `Api`) | B | **Completado** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2) y [PR #4](https://github.com/PickleRickHND/secunitec-platform/pull/4)) |
 | 3 · Seguridad | 3.1 Identity (OAuth 2.0 / OIDC / JWT) | A | **Completado** ([PR #3](https://github.com/PickleRickHND/secunitec-platform/pull/3)); ver [pendientes](#pendientes) |
 | | 3.2 Gateway (única entrada, 429, cabeceras) | A | **Completado** ([PR #3](https://github.com/PickleRickHND/secunitec-platform/pull/3)); ver [pendientes](#pendientes) |
-| 4 · Fachada | 4.1 Frontend (login, facturas, panel 429) | C | **Completado** (rama `feature/4-fachada`) |
-| | 4.2 Endurecer y verificar | A | **Completado** (rama `feature/4-fachada`) |
+| 4 · Fachada | 4.1 Frontend (login, facturas, panel 429) | C | **Completado** ([PR #4](https://github.com/PickleRickHND/secunitec-platform/pull/4)) |
+| | 4.2 Endurecer y verificar | A | **Completado** ([PR #4](https://github.com/PickleRickHND/secunitec-platform/pull/4)) |
 | 5 · Evidencia e informe | 5.1 Amenazas (STRIDE, SecurUML, OWASP) | Todos | Pendiente |
 | | 5.2 Telemetría (OpenTelemetry + Grafana) | C | Pendiente |
 | | 5.3 Pruebas de estrés (JMeter, USE) | C | Pendiente |
