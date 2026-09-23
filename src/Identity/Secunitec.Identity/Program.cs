@@ -20,15 +20,21 @@ builder.ConfigureSecunitecKestrel();
 builder.Services.AddSecunitecDefaults(headers =>
     headers.ContentSecurityPolicy = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
 
-// TB1: a Identity solo llega el gateway, por la red backend (interna). Se confía en sus X-Forwarded-For y
-// X-Forwarded-Proto para conocer la IP real del cliente (auditoría, lockout) y el esquema https con el que
-// llegó al gateway (cookies Secure).
-builder.Services.Configure<ForwardedHeadersOptions>(options =>
+// TB1: a Identity solo llegan el gateway, Billing y el gateway por el backchannel, por redes internas. Se confía
+// en sus X-Forwarded-* para conocer la IP real del cliente (auditoría, lockout), el esquema https con el que
+// llegó al gateway (cookies Secure) y el host público con el que OpenIddict arma las URLs del discovery.
+// X-Forwarded-Host solo se acepta si coincide con el host del issuer (AllowedHosts compara el host, sin puerto).
+builder.Services.AddOptions<ForwardedHeadersOptions>().Configure<IConfiguration>((options, configuration) =>
 {
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
     options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("10.0.0.0/8"));
     options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("172.16.0.0/12"));
     options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("192.168.0.0/16"));
+    string? issuer = configuration["Identity:Issuer"];
+    if (issuer is not null)
+    {
+        options.AllowedHosts.Add(new Uri(issuer).Host);
+    }
 });
 
 // La configuración se lee al resolver los servicios (no al registrarlos) para que los tests la puedan reemplazar.

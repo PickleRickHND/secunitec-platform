@@ -19,6 +19,20 @@ public sealed class InternalAuthorityHandlerTests
         Assert.Equal(new Uri(expected), sent);
     }
 
+    [Fact]
+    public async Task SendAsync_UrlReescrita_LlevaHostYEsquemaPublicos()
+    {
+        using RecordingHandler recorder = new();
+        using InternalAuthorityHandler handler = new(_publicAuthority, _internalAuthority, recorder);
+        using HttpClient client = new(handler, disposeHandler: false);
+
+        using HttpResponseMessage response = await client.GetAsync(
+            new Uri("https://localhost:8080/.well-known/jwks"), TestContext.Current.CancellationToken);
+
+        Assert.Equal("localhost:8080", recorder.LastForwardedHost);
+        Assert.Equal("https", recorder.LastForwardedProto);
+    }
+
     [Theory]
     [InlineData("https://localhost:8081/.well-known/jwks")]
     [InlineData("https://evil.example/.well-known/jwks")]
@@ -45,9 +59,15 @@ public sealed class InternalAuthorityHandlerTests
     {
         public Uri? LastRequestUri { get; private set; }
 
+        public string? LastForwardedHost { get; private set; }
+
+        public string? LastForwardedProto { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             LastRequestUri = request.RequestUri;
+            LastForwardedHost = request.Headers.TryGetValues("X-Forwarded-Host", out IEnumerable<string>? host) ? host.Single() : null;
+            LastForwardedProto = request.Headers.TryGetValues("X-Forwarded-Proto", out IEnumerable<string>? proto) ? proto.Single() : null;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         }
     }
