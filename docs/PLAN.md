@@ -5,7 +5,7 @@
 | Curso | Arquitectura de Sistemas Informáticos, UNITEC, Q3-2026 (Prof. Kevin Fúnez) |
 | Proyecto | Arquitectura y Ciberseguridad: Auditoría, Diseño y Resiliencia para Secunitec Corp. |
 | Repositorio | `PickleRickHND/secunitec-platform` (público, monorepo) |
-| Estado | Aprobado; etapas 1 a 4 completas (1.1 a 4.2); pendientes menores y etapa 5 en el README |
+| Estado | Aprobado; etapas 1 a 4 completas (1.1 a 4.2); etapa 5 en curso en la rama `feature/5-evidencia` (5.1, 5.2 y 5.3 listas; 5.4 después) |
 | Última actualización | 2026-09-23 |
 
 Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué decidimos, cómo se estructura el repo y en qué orden se construye. Cada requisito tiene un ID (`R01`...) que se referencia desde el código, los diagramas y las pruebas para demostrar la "coherencia estricta" que exige el criterio de evaluación (a).
@@ -23,7 +23,7 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | NoSQL y caché | MongoDB 8 (auditoría de seguridad) + Redis 7 (contadores de rate limit y caché) | Solo Redis | Multi-modelo real y verificable, no decorativo |
 | Front-End | React 19 + Vite 8 + TypeScript, SPA estática servida por nginx non-root | Next.js, Blazor WASM | Interfaz desacoplada sin runtime en servidor; CSP estricta; sin tokens del lado servidor |
 | Flujo OAuth del SPA | Authorization Code + PKCE (`oidc-client-ts`) | Password grant (ROPC) | Es el flujo recomendado por el OAuth 2.0 Security BCP (RFC 9700); ROPC está desaconsejado |
-| Servicio a servicio / carga | Client Credentials (cliente confidencial `jmeter-load`) | Token hardcodeado | JMeter obtiene su token de forma estándar en un setup thread group |
+| Servicio a servicio / carga | Client Credentials (cliente confidencial `jmeter-load`; en 5.3, además `jmeter-load-01..10` solo en Development, en un tenant de carga) | Token hardcodeado; un solo cliente | JMeter obtiene sus tokens de forma estándar en un setup thread group. Cada cliente tiene su `sub` y su partición de 60/min, así la prueba no choca con una sola partición y no hace falta bajar los límites |
 | Fase 4 (innovación) | OpenTelemetry Collector + Prometheus + Tempo + Loki + Grafana + cAdvisor | mTLS, WAF Coraza, service mesh | Refuerza la Fase 3 con dashboards USE en vivo; muy demostrable ante el comité. mTLS queda como extensión opcional si sobra tiempo |
 | Imágenes runtime .NET | `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra` (distroless, non-root) | `aspnet:10.0-alpine` | Incluye tzdata para calcular la fecha de emisión en `America/Tegucigalpa`; sin shell ni gestor de paquetes |
 | Idioma | Documentación y comentarios en español; identificadores de código en inglés (convención .NET / React) | | |
@@ -38,6 +38,14 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | Configuración del SPA (4.1) | URL del gateway y CSP de nginx fijadas al construir la imagen | Plantillas de nginx en tiempo de ejecución | Compatible con `read_only`; cambiar la URL exige `--build` |
 | Dirección visual (4.1) | "Institucional sobrio" (skill frontend-design): Public Sans self-hosted, azul institucional como único acento; la misma identidad en el login de Identity. Gráfica en SVG propio con la paleta de referencia del skill dataviz, validada | Librería de gráficas | Sin dependencias ni CSS en línea (CSP) y con la paleta validada para daltonismo |
 | Usuarios de Mongo (4.2) | Servicio `mongo-setup` idempotente en cada `up` | Scripts de `/docker-entrypoint-initdb.d` | Los init scripts solo corren con el volumen vacío; el servicio también corrige volúmenes existentes |
+| Red de la observabilidad (5.2) | `observability` internal; el collector recibe OTLP en `backend` y reparte en `observability`; Grafana también en `edge` solo para publicar `127.0.0.1:3001` | Servicios unidos a una `observability` con salida | Identity y Billing no ganan salida a Internet y nada de la observabilidad sale, salvo el puerto de Grafana en localhost |
+| Contexto de traza en el borde (5.2, TB0) | El gateway descarta `traceparent`, `tracestate` y `baggage` del cliente y abre una traza nueva; hacia adentro propaga el suyo | Aceptar el contexto del cliente | Un cliente de Internet no elige el trace id ni inyecta baggage en los servicios internos |
+| Instrumentación (5.2) | Solo paquetes OpenTelemetry estables; fuentes nativas de Npgsql, MongoDB.Driver y YARP | Instrumentaciones de Redis y EF Core | Siguen en beta (1.19.0-beta.1); las consultas a Postgres y Mongo aparecen igual en las trazas |
+| cAdvisor (5.2) | Sin root (uid 65534, grupo 0), con el socket de Docker en solo lectura y `pid: host` | Root o sin red por contenedor | La red por contenedor del USE lo exige; es un riesgo aceptado y documentado (docs/06, STRIDE) |
+| Métrica del `Retry-After` (5.2) | Histograma `secunitec.gateway.retry_after` además de los dos contadores del plan | Solo los contadores | El panel "Retry-After" del criterio de 5.2 necesitaba el dato |
+| Pool de YARP (5.3) | Las conexiones inactivas se sueltan a los 30 s, la mitad del keep-alive de 60 s de los servicios internos | Subir el keep-alive interno | La rampa de JMeter dio 3 respuestas 502. La ventana fija de 60 s dejaba a Billing inactivo justo 60 s y YARP reusaba conexiones que Kestrel estaba cerrando |
+| Pools de Npgsql (5.3) | `Maximum Pool Size` 50 en Billing y 20 en Identity: suman 70, dentro de las 97 conexiones que deja Postgres | Subir `max_connections`; limitar la concurrencia de Billing | El pico dio 33 respuestas 500 (53300) al abrirse cada ventana. Con el pool lleno la petición espera en vez de fallar |
+| Fase 1 fuera del repo (5.1) | Los diagramas (draw.io y OWASP Threat Dragon) y los documentos de amenazas, OWASP y trazabilidad viven en la carpeta del equipo, con el informe | `docs/01`, `docs/02-securuml/` (Mermaid + PlantUML), `docs/03` y `docs/trazabilidad.md` en el repo | Decisión del equipo: el repo lleva el sistema y su verificación; la Fase 1 se entrega con el informe. El STRIDE por componente se hizo en Threat Dragon (herramienta de OWASP) y los UML en draw.io, que ya usaba el equipo |
 
 ---
 
@@ -57,9 +65,9 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | R10 | Visualización en tiempo real de bloqueos 429 | Componente 5 | Panel de resiliencia del SPA |
 | R11 | `docker-compose.yml` unificado que levanta todo | Fase 2 | raíz del repo |
 | R12 | Redes aisladas | Fase 2 | redes `edge`, `backend`, `data`, `observability` |
-| R13 | Modelado de amenazas STRIDE por componente | Fase 1 | `docs/01-modelado-amenazas-stride.md` |
-| R14 | SecurUML: RBAC/ABAC y trust boundaries en UML | Fase 1 | `docs/02-securuml/` |
-| R15 | Mapeo de riesgos a OWASP Top 10 | Fase 1 | `docs/03-owasp-top10-mapeo.md` |
+| R13 | Modelado de amenazas STRIDE por componente | Fase 1 | `01-modelado-amenazas-stride.md` y diagrama 05 (Threat Dragon), fuera del repo (§0) |
+| R14 | SecurUML: RBAC/ABAC y trust boundaries en UML | Fase 1 | Diagramas 01-03 y 06-09 (draw.io), fuera del repo (§0) |
+| R15 | Mapeo de riesgos a OWASP Top 10 | Fase 1 | `03-owasp-top10-mapeo.md` y diagrama 04, fuera del repo (§0) |
 | R16 | Plan JMeter de alta concurrencia contra gateway y microservicios | Fase 3 | `tests/jmeter/` |
 | R17 | Telemetría con `docker stats` y Método USE | Fase 3 | `scripts/stress/`, `docs/05-pruebas-estres-use.md` |
 | R18 | Evidencia empírica: 429 controlados en vez de 500 | Fase 3 | informe USE + dashboards Grafana |
@@ -129,7 +137,7 @@ flowchart LR
   LK --> GF
 ```
 
-Solo `gateway` (8080), `frontend` (3000) y `grafana` (3001) publican puertos en el host. `backend` y `data` son redes `internal: true`: ni las bases de datos ni los microservicios son alcanzables desde fuera del compose.
+Solo `gateway` (8080), `frontend` (3000) y `grafana` (3001) publican puertos en el host, y solo en 127.0.0.1. `backend`, `data` y `observability` son redes `internal: true`: ni las bases de datos, ni los microservicios, ni la observabilidad son alcanzables desde fuera del compose. En la práctica (5.2), el OTLP de los tres servicios llega al collector por `backend`: el collector es el único contenedor en `backend` y `observability` a la vez, y Grafana publica su puerto a través de `edge`.
 
 ### 2.2 Flujo de autenticación (OIDC Authorization Code + PKCE)
 
@@ -182,7 +190,7 @@ sequenceDiagram
 | TB0 | Internet → edge | Navegador, JMeter | TLS (dev cert) en gateway, rate limiting, validación JWT, headers de seguridad, límites de tamaño y timeouts. Implementado en 3.2: HTTPS en `https://localhost:8080` y HSTS fuera de `localhost` (ver `docs/problemas-conocidos.md`). En 4.1: CORS solo para el origen del SPA; el SPA en nginx sin privilegios con CSP estricta |
 | TB1 | edge → backend | Solo el gateway | Red `internal`, JWT re-validado en cada microservicio, `X-Forwarded-*` controlados |
 | TB2 | backend → data | Identity y Billing | Red `internal`, credenciales distintas por servicio y por base, sin puertos publicados |
-| TB3 | servicios → observability | Exportadores OTLP | Red separada, Grafana con login, sin datos sensibles en trazas |
+| TB3 | servicios → observability | Exportadores OTLP | Red separada. Implementado en 5.2:<br>- `observability` internal; solo el collector la cruza desde `backend`.<br>- Grafana con login y solo en `127.0.0.1:3001`.<br>- Sin datos sensibles en trazas: sin cabeceras ni query string (el collector borra lo que quede).<br>- Métricas sin IP, `sub` ni tenant.<br>Ver `docs/06-innovacion-opentelemetry.md` |
 
 ---
 
@@ -213,7 +221,7 @@ Atributos (ABAC) en el JWT: `tenant_id` (= `ObligadoId`) y `cliente_id` cuando e
 
 ## 4. Controles de seguridad (mapa preliminar STRIDE → control → OWASP)
 
-Se detalla en `docs/01`, `docs/03` y `docs/trazabilidad.md` con `archivo:línea` cuando exista el código.
+Se detalla en los documentos de la Fase 1 (`01-modelado-amenazas-stride.md`, `03-owasp-top10-mapeo.md` y `trazabilidad.md`), con `archivo:línea` y la prueba de cada control. El equipo los guarda con el informe, fuera del repo (§0).
 
 | STRIDE | Componente | Amenaza | Control | OWASP Top 10 (2021) |
 |---|---|---|---|---|
@@ -264,8 +272,8 @@ secunitec-platform/
 │   ├── Secunitec.Gateway.Tests/           # 401, 429 + Retry-After, headers
 │   ├── Secunitec.Billing.Application.Tests/  # casos de uso con dobles en memoria
 │   ├── Secunitec.Billing.Infrastructure.Tests/  # caché con Redis caído y con el redis.conf real
-│   ├── e2e/                               # Playwright contra el compose
-│   └── jmeter/                            # 01-baseline.jmx, 02-ramp-saturation.jmx, 03-spike.jmx
+│   ├── e2e/                               # Playwright contra el compose (specs/grafana.spec.ts: capturas de 5.2 y 5.3)
+│   └── jmeter/                            # 01-baseline.jmx, 02-ramp-saturation.jmx, 03-spike.jmx (generar-planes.py) + secunitec.properties
 ├── infra/
 │   ├── postgres/init/01-databases.sql
 │   ├── mongo/setup/secunitec-setup.js     # usuarios, roles e índices (servicio mongo-setup, idempotente)
@@ -275,21 +283,19 @@ secunitec-platform/
 │   ├── prometheus/prometheus.yml
 │   ├── tempo/tempo.yaml
 │   ├── loki/loki.yaml
-│   └── grafana/provisioning/{datasources,dashboards}/
+│   └── grafana/{provisioning/{datasources,dashboards},dashboards}/   # 3 dashboards provisionados (5.2)
 ├── scripts/
-│   ├── stress/run-jmeter.sh
+│   ├── stress/run-jmeter.sh               # plan + captura + reporte HTML + rango para Grafana
 │   ├── stress/capture-docker-stats.sh     # docker stats → CSV cada segundo
+│   ├── stress/analizar.py                 # gráficas 429 vs 5xx y tabla USE (matplotlib, requirements.txt)
 │   ├── verify-hardening.sh                # curl, docker inspect/top, redes; --report escribe docs/04
-│   └── export-diagrams.sh                 # Mermaid → PNG/SVG para el informe
+│   └── verify-observability.sh            # 5.2: tráfico real → Prometheus, Tempo y Loki; --report escribe docs/evidencia/5.2
 ├── docs/
 │   ├── PLAN.md                            # este documento
-│   ├── 01-modelado-amenazas-stride.md
-│   ├── 02-securuml/                       # .mmd, .puml y exportados
-│   ├── 03-owasp-top10-mapeo.md
 │   ├── 04-hardening-verificacion.md
 │   ├── 05-pruebas-estres-use.md
 │   ├── 06-innovacion-opentelemetry.md
-│   ├── trazabilidad.md                    # R → amenaza → OWASP → archivo:línea → prueba
+│   ├── evidencia/                         # capturas y reportes generados de 5.2 y 5.3
 │   ├── informe/                           # DOCX final y fuentes
 │   └── presentacion/                      # PPTX final
 └── .github/workflows/ci.yml               # build + test .NET, lint + test front, compose config, gitleaks
@@ -310,7 +316,9 @@ secunitec-platform/
 | FluentValidation | 12.1.1 |
 | StackExchange.Redis | 3.3.0 |
 | RedisRateLimiting (comunitario; verificado en 3.2: soporta .NET 10 y su repo tuvo actividad en agosto de 2026) | 1.2.1 |
-| OpenTelemetry.* | 1.19.x |
+| OpenTelemetry.Extensions.Hosting / Exporter.OpenTelemetryProtocol (5.2) | 1.19.1 |
+| OpenTelemetry.Instrumentation.AspNetCore / Http (5.2) | 1.19.0 (Redis y EF Core no: siguen en beta) |
+| Microsoft.Extensions.Diagnostics.Testing (5.2, tests) | 10.10.0 |
 | Microsoft.AspNetCore.Authentication.JwtBearer | 10.0.12 |
 | xunit.v3 / xunit.runner.visualstudio | 4.0.1 / 4.0.0 (modo Microsoft.Testing.Platform; sin `Microsoft.NET.Test.Sdk`) |
 | Microsoft.AspNetCore.TestHost | 10.0.12 |
@@ -323,7 +331,8 @@ secunitec-platform/
 | @fontsource-variable/public-sans (4.1) | 5.3.0 (OFL; también copiada en el login de Identity) |
 | Testcontainers (núcleo, 4) | 4.15.0 (Redis con el `redis.conf` real en `Billing.Infrastructure.Tests`) |
 | dotnet-ef (herramienta local, `dotnet-tools.json`) | 10.0.12 |
-| Imágenes | `postgres:17-alpine`, `mongo:8`, `redis:7-alpine`, `nginxinc/nginx-unprivileged:alpine`, `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra`, `otel/opentelemetry-collector-contrib`, `prom/prometheus`, `grafana/tempo`, `grafana/loki`, `grafana/grafana`, `gcr.io/cadvisor/cadvisor` |
+| Imágenes | `postgres:17-alpine`, `mongo:8`, `redis:7-alpine`, `nginxinc/nginx-unprivileged:alpine`, `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra` |
+| Imágenes de observabilidad (5.2, verificadas el 2026-09-23) | `otel/opentelemetry-collector-contrib:0.161.0`, `prom/prometheus:v3.14.0`, `grafana/tempo:3.0.3` (monolítico, sin Kafka), `grafana/loki:3.7.8`, `grafana/grafana:13.2.2`, `ghcr.io/google/cadvisor:v0.60.6` (ya no se publica en `gcr.io`) |
 | Herramientas locales | Docker 29 + Compose v5.5, JMeter (Homebrew) + Java 23, Node 22 + pnpm 11.24 solo para desarrollo del front y los E2E (el compose construye el SPA en multi-stage) |
 
 ---
@@ -408,7 +417,7 @@ Precisiones de 3.1: en los tokens de aplicación (client credentials) `sub` es e
 | Compatibilidad OpenIddict 7.7 con .NET 10 | Verificar changelog al iniciar H2; fallback a la última 6.x compatible |
 | `RedisRateLimiting` es un paquete comunitario | Verificado en 3.2. Si Redis falla, `ResilientRateLimiter` usa un limitador en memoria por instancia y registra un warning: 429 controlados, nunca 500 |
 | JMeter sale de una sola IP: un límite por IP bloquearía todo al instante | Particiones por `sub`/`client_id` cuando hay token; por IP solo para anónimos; el plan usa varios clientes y usuarios |
-| Difícil saturar en una laptop | `deploy.resources.limits` bajos para Billing (por ejemplo 0.5 CPU, 256 MB) para alcanzar saturación con cientos de hilos; documentar el porqué |
+| Difícil saturar en una laptop | `deploy.resources.limits` bajos para Billing (por ejemplo 0.5 CPU, 256 MB) para alcanzar saturación con cientos de hilos; documentar el porqué. Resultado de 5.3: con 1000 hilos se saturan el gateway (83 % de CPU en promedio) y Redis; Billing se satura en ráfagas al abrirse cada ventana, sin 5xx tras las dos correcciones de docs/05 |
 | Tiempo del equipo | Reparto por hitos (sección 11) y PRs pequeños |
 
 ---

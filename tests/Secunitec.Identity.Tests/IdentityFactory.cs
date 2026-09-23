@@ -22,6 +22,8 @@ public sealed class IdentityFactory : WebApplicationFactory<Program>, IAsyncLife
     public const string AdminPassword = "Admin!Prueba123";
     public const string JmeterSecret = "secreto-de-prueba-de-jmeter-load";
     public static readonly Guid TenantId = Guid.Parse("00000000-0000-0000-0000-00000000aa01");
+    public static readonly Guid LoadTenantId = Guid.Parse("00000000-0000-0000-0000-00000000aa02");
+    public const int LoadClients = 3;
 
     // IP con la que llega el "gateway" en los tests: red privada, así Identity acepta sus X-Forwarded-*.
     private static readonly IPAddress _gatewayIp = IPAddress.Parse("10.0.0.2");
@@ -80,6 +82,8 @@ public sealed class IdentityFactory : WebApplicationFactory<Program>, IAsyncLife
         builder.UseSetting("Identity:SeedAdminTenantId", TenantId.ToString());
         builder.UseSetting("Identity:JmeterClientSecret", JmeterSecret);
         builder.UseSetting("Identity:JmeterTenantId", TenantId.ToString());
+        builder.UseSetting(JmeterClients.LoadClientsKey, LoadClients.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        builder.UseSetting(JmeterClients.LoadTenantKey, LoadTenantId.ToString());
 
         builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter, GatewayIpStartupFilter>());
     }

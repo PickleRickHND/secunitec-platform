@@ -116,7 +116,10 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: 8080
-      ConnectionStrings__Identity: Host=postgres;Database=secunitec_identity;Username=identity_app;Password=${IDENTITY_DB_PASSWORD};Include Error Detail=false;GSS Encryption Mode=Disable
+      # Maximum Pool Size (etapa 5.3): la suma de los pools de Billing (50) e Identity (20) cabe en las 97 conexiones que
+      # Postgres deja a los roles sin SUPERUSER (max_connections 100 - 3). Con el pool lleno la petición espera (Timeout
+      # 15 s) en vez de fallar con 53300: el pico de JMeter daba 500 al abrirse cada ventana del rate limiting.
+      ConnectionStrings__Identity: Host=postgres;Database=secunitec_identity;Username=identity_app;Password=${IDENTITY_DB_PASSWORD};Include Error Detail=false;GSS Encryption Mode=Disable;Maximum Pool Size=20
       Mongo__ConnectionString: mongodb://identity_audit:${MONGO_IDENTITY_PASSWORD}@mongo:27017/secunitec_audit?authSource=secunitec_audit
       # Issuer público: la URL del gateway que usan el navegador y JMeter (sin barra final en .env).
       Identity__Issuer: ${SECUNITEC_PUBLIC_URL:-https://localhost:8080}/
@@ -128,6 +131,10 @@ services:
       Identity__SeedAdminTenantId: ${IDENTITY_SEED_ADMIN_TENANT_ID:?Configurar IDENTITY_SEED_ADMIN_TENANT_ID}
       Identity__JmeterClientSecret: ${IDENTITY_JMETER_CLIENT_SECRET:?Configurar IDENTITY_JMETER_CLIENT_SECRET}
       Identity__JmeterTenantId: ${IDENTITY_JMETER_TENANT_ID:?Configurar IDENTITY_JMETER_TENANT_ID}
+      # Etapa 5.3 (solo Development): clientes de carga jmeter-load-01..NN, cada uno con su partición de rate limiting,
+      # en un tenant de carga propio que Billing siembra. 0 = ninguno.
+      Identity__JmeterLoadClients: ${IDENTITY_JMETER_LOAD_CLIENTS:-0}
+      Identity__JmeterLoadTenantId: ${IDENTITY_JMETER_LOAD_TENANT_ID:-}
       # Opcional: usuarios de demostración por rol (facturador@, auditor@ y cliente@secunitec.local).
       Identity__SeedDemoPassword: ${IDENTITY_SEED_DEMO_PASSWORD:-}
       Identity__SeedClienteId: ${SEED_CLIENTE_ID:-00000000-0000-0000-0000-0000000000c1}
@@ -161,7 +168,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: 8080
-      ConnectionStrings__Billing: Host=postgres;Database=secunitec_billing;Username=billing_app;Password=${BILLING_DB_PASSWORD};Include Error Detail=false;GSS Encryption Mode=Disable
+      # Maximum Pool Size: ver la nota de Identity (etapa 5.3, R18).
+      ConnectionStrings__Billing: Host=postgres;Database=secunitec_billing;Username=billing_app;Password=${BILLING_DB_PASSWORD};Include Error Detail=false;GSS Encryption Mode=Disable;Maximum Pool Size=50
       Mongo__ConnectionString: mongodb://billing_audit:${MONGO_BILLING_PASSWORD}@mongo:27017/secunitec_audit?authSource=secunitec_audit
       Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD},abortConnect=false
       # Valida el issuer público y descarga el JWKS de Identity por la red interna.
@@ -171,6 +179,9 @@ services:
       # Development: obligado y cliente de demostración en el tenant de ejemplo (el cliente del usuario cliente@).
       Billing__Seed__TenantId: ${IDENTITY_SEED_ADMIN_TENANT_ID:-}
       Billing__Seed__ClienteId: ${SEED_CLIENTE_ID:-00000000-0000-0000-0000-0000000000c1}
+      # Etapa 5.3: obligado y cliente del tenant de carga de JMeter (vacío = no se siembra).
+      Billing__Seed__LoadTenantId: ${IDENTITY_JMETER_LOAD_TENANT_ID:-}
+      Billing__Seed__LoadClienteId: ${SEED_LOAD_CLIENTE_ID:-00000000-0000-0000-0000-0000000000c2}
     tmpfs:
       - /tmp:size=64m
     depends_on:
@@ -252,7 +263,9 @@ networks:
     internal: true
   data:
     internal: true
-  observability: {}
+  # Fase 4 (docker-compose.observability.yml): collector, Prometheus, Tempo, Loki, cAdvisor y Grafana, sin salida.
+  observability:
+    internal: true
 
 volumes:
   postgres_data: {}

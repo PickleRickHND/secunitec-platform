@@ -46,10 +46,12 @@ public static class IdentitySeeder
                 RequiredGuid(configuration, "Identity:SeedClienteId"));
         }
 
-        await EnsureClientsAsync(provider.GetRequiredService<IOpenIddictApplicationManager>(), configuration);
+        await EnsureClientsAsync(
+            provider.GetRequiredService<IOpenIddictApplicationManager>(), configuration, provider.GetRequiredService<IHostEnvironment>());
     }
 
-    private static async Task EnsureClientsAsync(IOpenIddictApplicationManager applications, IConfiguration configuration)
+    private static async Task EnsureClientsAsync(
+        IOpenIddictApplicationManager applications, IConfiguration configuration, IHostEnvironment environment)
     {
         // El cliente del SPA se sincroniza en cada arranque: una base creada antes de la etapa 4.1 no tenía el permiso
         // de cierre de sesión ni la URI de vuelta, y cambiar SECUNITEC_SPA_URL no debe exigir borrar la base.
@@ -64,24 +66,36 @@ public static class IdentitySeeder
             await applications.UpdateAsync(existing, spa);
         }
 
-        if (await applications.FindByClientIdAsync(ConnectEndpoints.JmeterClientId) is null)
+        // Etapa 5.3: los clientes de carga solo existen en Development; en otro ambiente la configuración se rechaza.
+        if (JmeterClients.LoadClientCount(configuration) > 0 && !environment.IsDevelopment())
         {
-            await applications.CreateAsync(new OpenIddictApplicationDescriptor
+            throw new InvalidOperationException($"{JmeterClients.LoadClientsKey} solo se admite en Development.");
+        }
+
+        string jmeterSecret = RequiredSecret(configuration, "Identity:JmeterClientSecret");
+        foreach (string clientId in JmeterClients.LoadClientIds(configuration, environment).Prepend(ConnectEndpoints.JmeterClientId))
+        {
+            if (await applications.FindByClientIdAsync(clientId) is null)
             {
-                ClientId = ConnectEndpoints.JmeterClientId,
-                ClientSecret = RequiredSecret(configuration, "Identity:JmeterClientSecret"),
-                ClientType = OpenIddictConstants.ClientTypes.Confidential,
-                ConsentType = OpenIddictConstants.ConsentTypes.Implicit,
-                DisplayName = "JMeter Load Test",
-                Permissions =
-                {
-                    OpenIddictConstants.Permissions.Endpoints.Token,
-                    OpenIddictConstants.Permissions.GrantTypes.ClientCredentials,
-                    OpenIddictConstants.Permissions.Prefixes.Scope + SecunitecAudiences.Billing,
-                },
-            });
+                await applications.CreateAsync(JmeterDescriptor(clientId, jmeterSecret));
+            }
         }
     }
+
+    private static OpenIddictApplicationDescriptor JmeterDescriptor(string clientId, string secret) => new()
+    {
+        ClientId = clientId,
+        ClientSecret = secret,
+        ClientType = OpenIddictConstants.ClientTypes.Confidential,
+        ConsentType = OpenIddictConstants.ConsentTypes.Implicit,
+        DisplayName = "JMeter Load Test",
+        Permissions =
+        {
+            OpenIddictConstants.Permissions.Endpoints.Token,
+            OpenIddictConstants.Permissions.GrantTypes.ClientCredentials,
+            OpenIddictConstants.Permissions.Prefixes.Scope + SecunitecAudiences.Billing,
+        },
+    };
 
     /// <summary>URL del SPA sin barra final (<c>Identity:SpaUrl</c>); de ella salen las URIs de redirección.</summary>
     internal static string SpaUrl(IConfiguration configuration) =>

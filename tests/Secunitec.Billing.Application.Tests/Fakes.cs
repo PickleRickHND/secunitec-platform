@@ -134,6 +134,13 @@ internal sealed class FakeCache : ICache
     }
 }
 
+internal sealed class FakeMetricas : IMetricasFacturacion
+{
+    public int Emitidas { get; private set; }
+
+    public void FacturaEmitida() => Emitidas++;
+}
+
 internal sealed class FakeRequest : IRequestContext
 {
     public string? Ip => "203.0.113.7";
@@ -159,6 +166,7 @@ internal sealed class Escenario
     public FakeAuditoria Auditoria { get; } = new();
     public FakeCache Cache { get; } = new();
     public FakeUnitOfWork UnitOfWork { get; } = new();
+    public FakeMetricas Metricas { get; } = new();
 
     public static ObligadoTributario Obligado(Guid tenant) => new(tenant, new Rtn("08011999123456"), "Empresa",
         new Cai("AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FF"), "000-001-01", 1, 10, new DateOnly(2026, 12, 31));
@@ -188,7 +196,7 @@ internal sealed class Escenario
     public ContextoSeguridad Seguridad(ICurrentUser user) => new(user, Auditoria, new FakeRequest(), TimeProvider.System);
 
     public FacturasService Facturas(ICurrentUser user) => new(Seguridad(user), new FakeFacturas(Datos, user),
-        new FakeClientes(Datos, user), new FakeObligados(Datos, user), new FakeObligados(Datos, user), UnitOfWork, Cache);
+        new FakeClientes(Datos, user), new FakeObligados(Datos, user), new FakeObligados(Datos, user), UnitOfWork, Cache, Metricas);
 
     public ClientesService Clientes(ICurrentUser user) =>
         new(Seguridad(user), new FakeClientes(Datos, user), new FakeObligados(Datos, user), UnitOfWork, Cache);

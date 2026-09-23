@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -7,12 +8,16 @@ namespace Secunitec.BuildingBlocks.AspNetCore.Http;
 
 /// <summary>
 /// Garantiza un <c>X-Correlation-Id</c> por petición: respeta el recibido si es válido, genera uno si falta o es
-/// inválido, lo expone en <see cref="HttpContext.Items"/>, lo devuelve en la respuesta y lo agrega al scope de log.
+/// inválido, lo expone en <see cref="HttpContext.Items"/>, lo devuelve en la respuesta y lo agrega al scope de log
+/// y a la traza (5.2): con él se pasa de un evento de auditoría en Mongo a su traza en Tempo.
 /// </summary>
 public sealed class CorrelationIdMiddleware
 {
     /// <summary>Clave en <see cref="HttpContext.Items"/>.</summary>
     public const string ItemKey = "Secunitec.CorrelationId";
+
+    /// <summary>Atributo de la actividad de la petición con el correlation id.</summary>
+    public const string ActivityTag = "secunitec.correlation_id";
 
     private readonly RequestDelegate _next;
     private readonly ILogger<CorrelationIdMiddleware> _logger;
@@ -33,6 +38,7 @@ public sealed class CorrelationIdMiddleware
         string correlationId = CorrelationId.IsValid(incoming) ? incoming! : CorrelationId.NewId();
 
         context.Items[ItemKey] = correlationId;
+        Activity.Current?.SetTag(ActivityTag, correlationId);
         context.Response.OnStarting(() =>
         {
             context.Response.Headers[CorrelationId.HeaderName] = correlationId;

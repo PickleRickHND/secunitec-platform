@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
         services.AddScoped<IAuditoria, MongoAuditoria>();
         services.AddScoped<ICache, RedisCache>();
+        services.AddSingleton<IMetricasFacturacion, MetricasFacturacion>();
         return services;
     }
 

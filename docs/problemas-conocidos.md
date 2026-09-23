@@ -15,6 +15,9 @@ Procedimientos verificados para problemas del entorno, no del código. Cada entr
 | 9 | La auditoría muestra la IP `172.x.0.1` en todos los eventos | Es la puerta de enlace de Docker Desktop; con clientes remotos se ve la IP real |
 | 10 | `mongo` o `postgres` no arrancan con "Permission denied" tras la etapa 4.2 | Un volumen con archivos de root: devolverlos al usuario del servicio (abajo) |
 | 11 | El Front-End responde `Server: nginx` | Limitación de nginx OSS; la versión no se revela |
+| 12 | Grafana rechaza la contraseña de `.env` | Grafana la guardó en su volumen al primer arranque: borrar `grafana_data` (abajo) |
+| 13 | Los dashboards de Grafana no muestran nada | Levantar con los dos archivos de compose y el perfil `observability` |
+| 14 | cAdvisor sin nombres de contenedor o sin red por contenedor | Montar el socket de containerd y usar `pid: host` (ya en el compose) |
 
 ---
 
@@ -214,3 +217,48 @@ docker run --rm -v secunitec-platform_postgres_data:/data alpine chown -R 70:70 
 
 **Alcance.** R06 exige suprimir `Server` y `X-Powered-By` en el core y en el gateway, que es la única entrada a los servicios; allí se cumple. El Front-End solo sirve archivos estáticos. Queda documentado en `docs/04-hardening-verificacion.md`.
 
+---
+
+## 12. Grafana rechaza la contraseña de `.env` (etapa 5.2)
+
+**Síntoma.** `http://localhost:3001` responde "Invalid username or password" con `admin` y el valor de `GRAFANA_ADMIN_PASSWORD`, o `scripts/verify-observability.sh` falla con 401.
+
+**Causa.** `GF_SECURITY_ADMIN_PASSWORD` solo se aplica la primera vez que Grafana crea su base, dentro del volumen `grafana_data`. Si después cambia el valor de `.env`, Grafana sigue con la contraseña anterior.
+
+**Solución.** Borrar el volumen para que Grafana vuelva a crear su base. Los dashboards y los datasources están provisionados desde `infra/grafana`, así que no se pierde nada del proyecto:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile observability rm -sf grafana
+docker volume rm secunitec-platform_grafana_data
+docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile security --profile observability up -d grafana
+```
+
+**Comprobación.** `scripts/verify-observability.sh` pasa los controles "Dashboard provisionado", que entran a Grafana con el usuario `admin` y la contraseña de `.env`.
+
+---
+
+## 13. Los dashboards de Grafana no muestran nada (etapa 5.2)
+
+**Síntoma.** Los paneles dicen "No data" aunque el SPA y la API funcionan.
+
+**Causa.** Los servicios solo exportan telemetría si tienen `OTEL_EXPORTER_OTLP_ENDPOINT`, y esa variable la agrega `docker-compose.observability.yml`. Pasa si se levantó solo con `docker-compose.yml`, o si se agregó el perfil `observability` sin el segundo archivo.
+
+**Solución.** Levantar con los dos archivos y los dos perfiles. `--build` no hace falta si las imágenes ya existen:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile security --profile observability up -d
+```
+
+**Comprobación.** `scripts/verify-observability.sh` termina con 0 FAIL. Las métricas se exportan cada 5 s, así que el primer dato tarda unos segundos en aparecer.
+
+---
+
+## 14. cAdvisor sin nombres de contenedor o sin red por contenedor (etapa 5.2)
+
+**Síntoma.** En "USE Overview" las series no tienen nombre de servicio, o los paneles de red están vacíos.
+
+**Causa.** Docker Desktop usa el almacén de imágenes de containerd. El adaptador de Docker de cAdvisor necesita también el socket de containerd; sin él, solo registra los cgroups crudos. La red por contenedor se lee de `/proc/<pid>/net/dev` de cada contenedor, que cAdvisor no ve sin el espacio de PIDs del host.
+
+**Solución.** `docker-compose.observability.yml` ya monta `/run/containerd/containerd.sock` y usa `pid: host`. Si se copia el servicio a otro compose, conservar ambos. Es un riesgo aceptado y documentado (docs/06, sección 6).
+
+**Comprobación.** `scripts/verify-observability.sh`: "cAdvisor: red por contenedor con el nombre del servicio".

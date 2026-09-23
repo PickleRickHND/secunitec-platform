@@ -1,0 +1,149 @@
+{
+  "plan": "03-spike",
+  "carpeta": "tests/jmeter/results/20260923-103831-03-spike",
+  "duracion_s": 189.9,
+  "hilos_max": 1000,
+  "muestras": 854338,
+  "throughput_rps": 4498.1,
+  "throughput_aceptado_rps": 12.64,
+  "codigos": {
+    "200": 1947,
+    "201": 453,
+    "429": 851938
+  },
+  "clases": {
+    "2xx": 2400,
+    "429": 851938,
+    "401/403": 0,
+    "5xx": 0,
+    "otros": 0
+  },
+  "porcentaje_429": 99.7,
+  "latencia_ms": {
+    "2xx": {
+      "p50": 1289.5,
+      "p95": 1898.1,
+      "p99": 1948.0,
+      "max": 1962.0
+    },
+    "429": {
+      "p50": 2.0,
+      "p95": 59.0,
+      "p99": 141.0,
+      "max": 359.0
+    }
+  },
+  "use_docker": {
+    "gateway": {
+      "limite_cpu": 1.0,
+      "cpu_media": 83.02782608695652,
+      "cpu_max": 104.48,
+      "mem_media": 88.67505434782608,
+      "mem_max": 94.67,
+      "red_max_bps": 20080325.053632222,
+      "pids_max": 24
+    },
+    "billing": {
+      "limite_cpu": 0.5,
+      "cpu_media": 5.187752808988764,
+      "cpu_max": 103.86,
+      "mem_media": 82.46859550561798,
+      "mem_max": 90.62,
+      "red_max_bps": 9209208.541064555,
+      "pids_max": 29
+    },
+    "identity": {
+      "limite_cpu": 1.0,
+      "cpu_media": 0.44080459770114944,
+      "cpu_max": 38.07,
+      "mem_media": 37.26137931034482,
+      "mem_max": 37.65,
+      "red_max_bps": 21042.081111995558,
+      "pids_max": 21
+    },
+    "redis": {
+      "limite_cpu": 0.25,
+      "cpu_media": 63.1841304347826,
+      "cpu_max": 86.52,
+      "mem_media": 5.33679347826087,
+      "mem_max": 9.26,
+      "red_max_bps": 11033099.530073863,
+      "pids_max": 12
+    },
+    "postgres": {
+      "limite_cpu": 1.0,
+      "cpu_media": 2.9332919254658383,
+      "cpu_max": 67.03,
+      "mem_media": 21.934782608695652,
+      "mem_max": 26.65,
+      "red_max_bps": 3006011.587427937,
+      "pids_max": 59
+    }
+  },
+  "use_prometheus": {
+    "throttling_max": {
+      "gateway": 39.39393939393939,
+      "billing": 29.090909090909093,
+      "identity": 0.0,
+      "redis": 6.751054852320676,
+      "postgres": 16.666666666666664
+    },
+    "eventos_memoria": {
+      "gateway": 0.0,
+      "billing": 161.92024482109227,
+      "identity": 0.0,
+      "redis": 0.0,
+      "postgres": 0.0
+    },
+    "oom": {
+      "gateway": 0.0,
+      "billing": 0.0,
+      "identity": 0.0,
+      "redis": 0.0,
+      "postgres": 0.0
+    },
+    "errores_red": {
+      "gateway": 0.0,
+      "billing": 0.0,
+      "identity": 0.0,
+      "redis": 0.0,
+      "postgres": 0.0
+    },
+    "cola_thread_pool_max": {
+      "gateway": 335.0,
+      "billing": 496.0,
+      "identity": 0.0
+    },
+    "hilos_thread_pool_max": {
+      "gateway": 5.0,
+      "billing": 10.0,
+      "identity": 5.0
+    },
+    "pool_postgres_max_pct": {
+      "billing": 0.0,
+      "identity": 0.0
+    },
+    "pool_postgres_pendientes_max": {
+      "billing": 99.0,
+      "identity": null
+    },
+    "conexiones_postgres_creadas": {
+      "billing": 51.76429988784401,
+      "identity": 1.0352859977568802
+    },
+    "operaciones_postgres": {
+      "billing": 6373.220602191354,
+      "identity": 20.705719955137603
+    },
+    "operaciones_postgres_p95_ms": {
+      "billing": 93.77398720682301,
+      "identity": 4.999999999999999
+    },
+    "respuestas_5xx": {
+      "gateway": 0.0,
+      "billing": 0.0,
+      "identity": 0.0
+    },
+    "rechazos_429_segun_metrica_propia": 882000.5176429988
+  }
+}

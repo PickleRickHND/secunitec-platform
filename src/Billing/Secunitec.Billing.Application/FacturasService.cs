@@ -11,7 +11,8 @@ public sealed class FacturasService(
     IObligadoRepository obligados,
     INumeradorFacturas numerador,
     IUnitOfWork unitOfWork,
-    ICache cache)
+    ICache cache,
+    IMetricasFacturacion metricas)
 {
     public async Task<FacturaDetalle> Crear(NuevaFactura request, CancellationToken cancellationToken)
     {
@@ -85,6 +86,7 @@ public sealed class FacturasService(
             return bloqueada;
         }, cancellationToken);
 
+        metricas.FacturaEmitida();
         return await Cerrar(factura, AccionesAuditoria.FacturaEmitida, factura.Numero, cancellationToken);
     }
 

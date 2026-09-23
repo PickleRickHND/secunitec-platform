@@ -4,6 +4,7 @@
 // R06: sin Server ni X-Powered-By, ni del gateway ni de las respuestas reenviadas.
 // TB0: el TLS termina aquí (certificado de desarrollo montado por el compose; ver scripts/dev-cert.sh).
 // R09: CORS solo para el origen del SPA (etapa 4.1); cada ruta de YARP declara si lo admite (CorsPolicy).
+// R19: OpenTelemetry (etapa 5.2); el rate limiting publica secunitec_gateway_rate_limited_total.
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Secunitec.BuildingBlocks.AspNetCore.Hosting;
@@ -12,11 +13,19 @@ using Secunitec.BuildingBlocks.AspNetCore.Security;
 using Secunitec.BuildingBlocks.Http;
 using Secunitec.Gateway;
 using StackExchange.Redis;
+using Yarp.ReverseProxy.Forwarder;
 using Yarp.ReverseProxy.Transforms;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 builder.ConfigureSecunitecKestrel();
+// R19 (5.2): trazas, métricas y logs por OTLP. TB0: el gateway no acepta el contexto de traza que manda el cliente.
+builder.AddSecunitecTelemetry("secunitec-gateway", telemetry =>
+{
+    telemetry.IgnoreIncomingTraceContext = true;
+    telemetry.Sources.Add("Yarp.ReverseProxy");
+    telemetry.Meters.Add(GatewayMetrics.MeterName);
+});
 builder.Services.AddSecunitecDefaults();
 
 builder.Services
@@ -33,6 +42,8 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp => ConnectionMultiplexe
 builder.Services.AddSecunitecRateLimiting(builder.Configuration);
 builder.Services.AddSecunitecCors(builder.Configuration);
 
+// R18: el pool de YARP suelta las conexiones inactivas antes de que Billing e Identity las cierren (etapa 5.3).
+builder.Services.AddSingleton<IForwarderHttpClientFactory, GatewayForwarderHttpClientFactory>();
 builder.Services
     .AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))

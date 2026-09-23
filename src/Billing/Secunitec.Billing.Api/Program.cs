@@ -19,6 +19,14 @@ using Secunitec.BuildingBlocks.Security;
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 // R06 + límites de body y timeouts comunes a los tres servicios (etapa 1.1).
 builder.ConfigureSecunitecKestrel();
+// R19 (5.2): trazas gateway → billing → Postgres/Mongo, métricas del pool de Npgsql y facturas emitidas.
+builder.AddSecunitecTelemetry("secunitec-billing", telemetry =>
+{
+    telemetry.Sources.Add("Npgsql");
+    telemetry.Sources.Add("MongoDB.Driver");
+    telemetry.Meters.Add("Npgsql");
+    telemetry.Meters.Add(MetricasFacturacion.MeterName);
+});
 builder.Services.AddSecunitecDefaults();
 builder.Services.AddExceptionHandler<BillingExceptionHandler>();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -101,6 +109,18 @@ using (IServiceScope scope = app.Services.CreateScope())
             Guid.Parse(seedTenant, CultureInfo.InvariantCulture),
             Guid.Parse(app.Configuration["Billing:Seed:ClienteId"]
                 ?? throw new InvalidOperationException("Configure Billing:Seed:ClienteId."), CultureInfo.InvariantCulture),
+            Hoy(),
+            CancellationToken.None);
+    }
+
+    // Etapa 5.3: tenant de carga de los clientes jmeter-load-NN (mismo valor que Identity:JmeterLoadTenantId).
+    if (app.Environment.IsDevelopment() && app.Configuration["Billing:Seed:LoadTenantId"] is { Length: > 0 } loadTenant)
+    {
+        await BillingDemoSeeder.SeedLoadTenantAsync(
+            db,
+            Guid.Parse(loadTenant, CultureInfo.InvariantCulture),
+            Guid.Parse(app.Configuration["Billing:Seed:LoadClienteId"]
+                ?? throw new InvalidOperationException("Configure Billing:Seed:LoadClienteId."), CultureInfo.InvariantCulture),
             Hoy(),
             CancellationToken.None);
     }

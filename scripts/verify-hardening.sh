@@ -3,6 +3,8 @@
 # Uso, desde la raíz y con el perfil security arriba:
 #   scripts/verify-hardening.sh            # imprime PASS/FAIL por control
 #   scripts/verify-hardening.sh --report   # además escribe docs/04-hardening-verificacion.md con la salida real
+# Si la observabilidad de la etapa 5.2 está levantada (docker-compose.observability.yml), sus contenedores entran solos
+# en la verificación y se agregan los controles de TB3.
 # Requiere curl, python3 y docker. Lee los secretos de .env (o de ENV_FILE) y confía en infra/certs/gateway.pem
 # (o en CA_FILE). Nunca imprime secretos ni tokens: el reporte muestra códigos de estado y cabeceras.
 # Consume el cupo de /connect/token (5/min por IP): si lo encuentra agotado, espera el Retry-After y sigue.
@@ -64,7 +66,15 @@ token_request() {
 }
 
 PROJECT=$(docker compose config --format json 2>/dev/null | python3 -c "import json, sys; print(json.load(sys.stdin)['name'])")
-echo "Gateway: $BASE   SPA: $SPA   Proyecto: $PROJECT"
+# 5.2: con el overlay de observabilidad corriendo, todos los `docker compose` del script lo incluyen. Sin esto sus
+# contenedores quedarían fuera de la verificación sin avisar.
+OBSERVABILITY=""
+if [ -n "$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter label=com.docker.compose.service=otel-collector)" ]; then
+    OBSERVABILITY=yes
+    export COMPOSE_FILE=docker-compose.yml:docker-compose.observability.yml
+fi
+COMPOSE_FILES=${COMPOSE_FILE:-docker-compose.yml}
+echo "Gateway: $BASE   SPA: $SPA   Proyecto: $PROJECT   Compose: $COMPOSE_FILES"
 
 section "TB0 y R06: TLS y cabeceras del gateway"
 check "TLS: HTTPS con el certificado del gateway" "http -o /dev/null $BASE/health"
@@ -104,15 +114,27 @@ check "R04: /api/billing sin token → 401" "[ $status = 401 ]"
 status=$(token_request)
 check "R03: token por client credentials 200" "[ $status = 200 ]"
 TOKEN=$(json "$TMP/t" "d['access_token']")
-status=$(http -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/billing/facturas")
-check "R01: Billing a través del gateway con token → 200" "[ $status = 200 ]"
-status=$(http -o "$TMP/o403" -w '%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-    -d '{}' "$BASE/api/billing/obligados")
-check "R04: rol Facturador en endpoint de Admin → 403" "[ $status = 403 ]"
-status=$(http -o "$TMP/audit403" -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/billing/auditoria")
-check "R04: rol Facturador en la auditoría → 403" "[ $status = 403 ]"
+# La partición de jmeter-load (60/min) puede venir gastada por otra herramienta (verify-observability, JMeter): ante un
+# 429 se espera el Retry-After una vez, como con /connect/token. El 429 en sí se verifica en la sección R02.
+billing_request() {
+    local status
+    for _ in 1 2; do
+        status=$(http -D "$TMP/bh" -o "$TMP/bb" -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$@")
+        if [ "$status" != 429 ]; then echo "$status"; return; fi
+        local wait_for; wait_for=$(header_in "$TMP/bh" Retry-After); wait_for=${wait_for:-60}
+        echo "INFO  partición de jmeter-load limitada: espero $((wait_for + 1)) s (Retry-After)" >&2
+        sleep $((wait_for + 1))
+    done
+    echo "$status"
+}
+status_facturas=$(billing_request "$BASE/api/billing/facturas")
+check "R01: Billing a través del gateway con token → 200" "[ $status_facturas = 200 ]"
+status_obligados=$(billing_request -X POST -H 'Content-Type: application/json' -d '{}' "$BASE/api/billing/obligados")
+check "R04: rol Facturador en endpoint de Admin → 403" "[ $status_obligados = 403 ]"
+status_auditoria=$(billing_request "$BASE/api/billing/auditoria")
+check "R04: rol Facturador en la auditoría → 403" "[ $status_auditoria = 403 ]"
 evidence "curl -s -o /dev/null -w '%{http_code}' .../api/billing/{facturas,obligados,auditoria}   # sin token, Facturador y Facturador" \
-    "401 (sin token), 200 (facturas), 403 (obligados), $status (auditoria)"
+    "401 (sin token), $status_facturas (facturas), $status_obligados (obligados), $status_auditoria (auditoria)"
 
 section "R09: CORS para el SPA"
 http -D "$TMP/pf" -o /dev/null -X OPTIONS "$BASE/api/billing/facturas" -H "Origin: $SPA" \
@@ -155,19 +177,47 @@ for service in $(docker compose ps --services 2>/dev/null); do
 done
 billing_limits=$(docker inspect "$(docker compose ps -q billing)" --format '{{.HostConfig.NanoCpus}} {{.HostConfig.Memory}}' 2>/dev/null)
 check "Billing con límites bajos para la etapa 5.3 (0.5 CPU, 256 MiB)" "[ \"$billing_limits\" = '500000000 268435456' ]"
-secrets_in_compose=$(grep -nE '(PASSWORD|SECRET|Password=|password=)' docker-compose.yml | grep -vE '\$\{|\$\$\{|^\s*#' || true)
-check "Secretos solo por .env: ningún valor literal en docker-compose.yml" "[ -z \"$secrets_in_compose\" ]"
-evidence "grep -nE '(PASSWORD|SECRET|Password=|password=)' docker-compose.yml | grep -v '\${'" "${secrets_in_compose:-(sin coincidencias)}"
+secrets_in_compose=$(grep -nE '(PASSWORD|SECRET|Password=|password=)' docker-compose.yml docker-compose.observability.yml | grep -vE ':[0-9]+:\s*#|\$\{|\$\$\{' || true)
+check "Secretos solo por .env: ningún valor literal en los compose" "[ -z \"$secrets_in_compose\" ]"
+evidence "grep -nE '(PASSWORD|SECRET|Password=|password=)' docker-compose.yml docker-compose.observability.yml | grep -v '\${'" "${secrets_in_compose:-(sin coincidencias)}"
 
 section "R12 y TB2: redes y puertos"
-published=$(docker compose ps --format '{{.Service}} {{.Publishers}}' 2>/dev/null | grep -vE '^(gateway|frontend) ' | grep -cE '[0-9]+->' || true)
-evidence "docker compose ps --format '{{.Service}} {{.Publishers}}'" "$(docker compose ps --format '{{.Service}} {{.Publishers}}' 2>/dev/null)"
-check "R12: solo el gateway y el Front-End publican puertos en el host" "[ \"$published\" = 0 ]"
-for network in backend data; do
+# {{.Ports}} muestra "127.0.0.1:8080->8443/tcp" para un puerto publicado y "6379/tcp" para uno solo expuesto.
+# (Hasta la etapa 5.2 se usaba {{.Publishers}}, cuyo formato nunca contiene "->": estos dos controles no podían fallar.)
+ports=$(docker compose ps --format '{{.Service}} {{.Ports}}' 2>/dev/null)
+evidence "docker compose ps --format '{{.Service}} {{.Ports}}'" "$ports"
+published=$(echo "$ports" | grep -vE '^(gateway|frontend|grafana) ' | grep -c -- '->' || true)
+check "R12: solo el gateway, el Front-End y Grafana publican puertos en el host" "[ \"$published\" = 0 ]"
+check "R12: los puertos publicados escuchan solo en 127.0.0.1" "! echo \"$ports\" | grep -- '->' | grep -qvE '^[a-z-]+ (127\\.0\\.0\\.1:[0-9]+->[0-9]+/tcp(, )?)+$'"
+internal_networks="backend data"
+[ -n "$OBSERVABILITY" ] && internal_networks="backend data observability"
+for network in $internal_networks; do
     internal=$(docker network inspect "${PROJECT}_${network}" --format '{{.Internal}}' 2>/dev/null)
     check "R12: red $network interna" "[ \"$internal\" = true ]"
 done
-check "Los puertos publicados escuchan solo en 127.0.0.1" "! docker compose ps --format '{{.Publishers}}' | grep -E '0\.0\.0\.0:|\[::\]:' -q"
+# Solo cAdvisor (5.2) necesita el socket de Docker y el espacio de PIDs del host; ambos son riesgos aceptados.
+host_access=$(for id in $(docker compose ps -q 2>/dev/null); do
+    docker inspect "$id" --format '{{index .Config.Labels "com.docker.compose.service"}} pid={{.HostConfig.PidMode}} socket={{range .Mounts}}{{if eq .Source "/var/run/docker.sock"}}{{.Source}}:rw={{.RW}}{{end}}{{end}}'
+done | grep -E 'pid=host|socket=/' || true)
+evidence "docker inspect <cada contenedor> --format 'pid={{.HostConfig.PidMode}} socket=<montaje de docker.sock>'" "${host_access:-(ninguno)}"
+check "Solo cAdvisor monta el socket de Docker, y en solo lectura" "! echo \"$host_access\" | grep 'socket=/' | grep -qvE '^cadvisor .*socket=/var/run/docker.sock:rw=false'"
+check "Solo cAdvisor usa el espacio de PIDs del host" "! echo \"$host_access\" | grep 'pid=host' | grep -qv '^cadvisor '"
+
+if [ -n "$OBSERVABILITY" ]; then
+    section "TB3: observabilidad (etapa 5.2)"
+    networks_of() { docker inspect "$(docker compose ps -q "$1")" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' 2>/dev/null; }
+    attachments=$(for service in gateway identity billing otel-collector prometheus tempo loki cadvisor grafana; do
+        printf '%s: %s\n' "$service" "$(networks_of "$service")"
+    done)
+    evidence "docker inspect <servicio> --format '{{range \$name, \$_ := .NetworkSettings.Networks}}{{\$name}} {{end}}'" "$attachments"
+    check "TB3: identity y billing no están en la red observability" "! echo \"$attachments\" | grep -E '^(identity|billing):' | grep -q '_observability'"
+    check "TB3: el collector es el único en backend y observability a la vez" "[ \"\$(echo \"$attachments\" | grep '_backend' | grep '_observability' | cut -d: -f1)\" = otel-collector ]"
+    grafana_anon=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3001/api/search)
+    evidence "curl -s -o /dev/null -w '%{http_code}' http://localhost:3001/api/search   # sin credenciales" "$grafana_anon"
+    check "TB3: Grafana exige login (401 sin credenciales)" "[ \"$grafana_anon\" = 401 ]"
+    check "TB3: la contraseña de Grafana no es el placeholder de .env.example" "[ -n \"$(env_value GRAFANA_ADMIN_PASSWORD)\" ] && ! env_value GRAFANA_ADMIN_PASSWORD | grep -q '^CAMBIAR'"
+    check "TB3: Grafana publica solo 127.0.0.1:3001" "echo \"$ports\" | grep -qE '^grafana 127\\.0\\.0\\.1:3001->3000/tcp$'"
+fi
 
 section "2.1: Redis y Mongo"
 redis_config=$(docker compose exec -T redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli CONFIG GET maxmemory' 2>&1)
@@ -180,6 +230,18 @@ mongo_delete=$(docker compose exec -T mongo sh -c 'mongosh --quiet "mongodb://bi
     "$(env_value MONGO_BILLING_PASSWORD)" 2>&1 | grep -oE 'not authorized[^"]*|deletedCount[^}]*' | head -1)
 evidence "mongosh 'mongodb://billing_audit:***@localhost/secunitec_audit' --eval 'db.eventos.deleteMany({})'" "$mongo_delete"
 check "Mongo: billing_audit no puede borrar la auditoría" "echo '$mongo_delete' | grep -q 'not authorized'"
+# R18 (etapa 5.3): los pools de Npgsql de Billing e Identity caben en las conexiones que Postgres admite; si no, una
+# ráfaga devuelve 500 (53300). Sin "Maximum Pool Size" en la cadena, Npgsql usa 100.
+pg_limits=$(docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d postgres -Atc "SELECT current_setting('"'"'max_connections'"'"')::int - current_setting('"'"'superuser_reserved_connections'"'"')::int"' 2>/dev/null | tr -d '\r')
+# Los tamaños salen de los contenedores en ejecución (la configuración real), no de un valor fijo en el script.
+pool_sizes=$(for service in billing identity; do
+    cadena=$(docker inspect "$(docker compose ps -q "$service")" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^ConnectionStrings__')
+    echo "$service $(echo "$cadena" | grep -oE 'Maximum Pool Size=[0-9]+' | cut -d= -f2 | grep . || echo 100)"
+done)
+pool_total=$(echo "$pool_sizes" | awk '{s += $2} END {print s + 0}')
+evidence "Maximum Pool Size de Billing e Identity (contenedores) contra max_connections - superuser_reserved_connections (Postgres)" "$pool_sizes
+total $pool_total / disponibles ${pg_limits:-?}"
+check "R18: los pools de Npgsql caben en max_connections de Postgres" "[ -n \"$pg_limits\" ] && [ \"$pool_total\" -le \"$pg_limits\" ]"
 
 section "R02: rate limiting (va al final: agota el cupo de /connect/token)"
 rejected=""
@@ -206,7 +268,7 @@ if [ -n "$REPORT" ]; then
     {
         echo "# 4.2 · Verificación del hardening"
         echo
-        echo "Generado por \`scripts/verify-hardening.sh --report\`: no editar a mano. Cada control muestra la salida real del comando contra el compose levantado (\`docker compose --profile security up -d --build\`). Los secretos y tokens nunca se imprimen."
+        echo "Generado por \`scripts/verify-hardening.sh --report\`: no editar a mano. Cada control muestra la salida real del comando contra el compose levantado. Los secretos y tokens nunca se imprimen."
         echo
         echo "| Campo | Valor |"
         echo "|---|---|"
@@ -214,6 +276,7 @@ if [ -n "$REPORT" ]; then
         echo "| Commit | \`$(git rev-parse --short HEAD 2>/dev/null)\`$(git diff --quiet 2>/dev/null || echo ' (con cambios sin commitear)') |"
         echo "| Docker | $(docker version --format '{{.Server.Version}}' 2>/dev/null), Compose $(docker compose version --short 2>/dev/null) |"
         echo "| Gateway / SPA | $BASE / $SPA |"
+        echo "| Archivos de compose | \`$COMPOSE_FILES\` |"
         echo "| Resultado | **$PASS PASS, $FAIL FAIL** |"
         echo
         echo "## Contenedores"
@@ -236,6 +299,7 @@ if [ -n "$REPORT" ]; then
         echo "- **Server: nginx.** nginx OSS no puede quitar la cabecera \`Server\`; \`server_tokens off\` oculta la versión. R06 se cumple en el gateway, que es la única entrada a los servicios."
         echo "- **HSTS en localhost.** \`UseHsts\` excluye localhost a propósito (docs/problemas-conocidos.md §4); con otro host el control se verifica."
         echo "- **Preflight de CORS sin rate limiting.** Se responde en el gateway antes del limitador y nunca llega a un servicio interno."
+        echo "- **cAdvisor (5.2).** Corre sin root, pero monta el socket de Docker (aunque sea \`:ro\`, da acceso a la API de Docker, que equivale a controlar el host) y usa \`pid: host\` para medir la red por contenedor. Es un riesgo aceptado del entorno de desarrollo: está en una red internal, sin puertos, y queda documentado en docs/06 y en STRIDE."
     } > "$REPORT"
     echo "Reporte: $REPORT"
 fi
