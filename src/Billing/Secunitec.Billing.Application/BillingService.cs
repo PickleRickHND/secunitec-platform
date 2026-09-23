@@ -37,7 +37,7 @@ public sealed class BillingService(ICurrentUser currentUser, IBillingStore store
         Requerir(SecunitecRoles.Admin);
         if (await store.ExisteObligado(Tenant, cancellationToken))
         {
-            throw new BillingRuleException("El tenant ya tiene un obligado registrado.");
+            throw new BillingConflictException("El tenant ya tiene un obligado registrado.");
         }
 
         ObligadoTributario obligado = new(Tenant, request.Rtn, request.RazonSocial, request.Cai,

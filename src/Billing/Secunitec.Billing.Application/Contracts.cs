@@ -36,3 +36,7 @@ public interface IInvoiceCache
 }
 
 public sealed class BillingAccessException(string message) : Exception(message);
+
+/// <summary>El recurso ya existe (RTN repetido, obligado duplicado o alta concurrente); la API responde 409.</summary>
+public sealed class BillingConflictException(string message, Exception? innerException = null)
+    : Exception(message, innerException);

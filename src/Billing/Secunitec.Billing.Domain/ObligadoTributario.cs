@@ -7,7 +7,7 @@ public sealed class ObligadoTributario
     public ObligadoTributario(Guid id, string rtn, string razonSocial, string cai, string prefijo,
         int rangoDesde, int rangoHasta, DateOnly fechaLimiteEmision)
     {
-        if (id == Guid.Empty || string.IsNullOrWhiteSpace(razonSocial) ||
+        if (id == Guid.Empty || string.IsNullOrWhiteSpace(razonSocial) || razonSocial.Trim().Length > 250 ||
             rangoDesde < 1 || rangoHasta < rangoDesde || rangoHasta > 99_999_999 ||
             prefijo is null || !System.Text.RegularExpressions.Regex.IsMatch(prefijo, "^[0-9]{3}-[0-9]{3}-[0-9]{2}$"))
         {

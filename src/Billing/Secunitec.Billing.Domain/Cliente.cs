@@ -6,7 +6,9 @@ public sealed class Cliente
 
     public Cliente(Guid id, Guid obligadoId, string nombre, string? rtn, string? email)
     {
-        if (id == Guid.Empty || obligadoId == Guid.Empty || string.IsNullOrWhiteSpace(nombre))
+        // Los límites replican varchar(250) de la BD: un texto más largo sería un 500 en vez de un 400 (R18).
+        if (id == Guid.Empty || obligadoId == Guid.Empty || string.IsNullOrWhiteSpace(nombre) ||
+            nombre.Trim().Length > 250 || email?.Length > 250)
         {
             throw new BillingRuleException("Los datos del cliente son inválidos.");
         }

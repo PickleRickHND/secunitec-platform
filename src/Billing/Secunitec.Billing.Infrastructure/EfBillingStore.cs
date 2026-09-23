@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Secunitec.Billing.Application;
 using Secunitec.Billing.Domain;
 
@@ -15,19 +16,19 @@ public sealed class EfBillingStore(BillingDbContext db) : IBillingStore
     public async Task AgregarCliente(Cliente cliente, CancellationToken cancellationToken)
     {
         db.Clientes.Add(cliente);
-        await db.SaveChangesAsync(cancellationToken);
+        await Guardar(cancellationToken);
     }
 
     public async Task AgregarObligado(ObligadoTributario obligado, CancellationToken cancellationToken)
     {
         db.Obligados.Add(obligado);
-        await db.SaveChangesAsync(cancellationToken);
+        await Guardar(cancellationToken);
     }
 
     public async Task AgregarFactura(Factura factura, CancellationToken cancellationToken)
     {
         db.Facturas.Add(factura);
-        await db.SaveChangesAsync(cancellationToken);
+        await Guardar(cancellationToken);
     }
 
     public Task<Factura?> ObtenerFactura(Guid tenantId, Guid id, Guid? clienteId, CancellationToken cancellationToken) =>
@@ -56,7 +57,7 @@ public sealed class EfBillingStore(BillingDbContext db) : IBillingStore
             $"SELECT * FROM billing_obligados WHERE id = {tenantId} FOR UPDATE")
             .SingleAsync(cancellationToken);
         factura.Emitir(obligado, hoy);
-        await db.SaveChangesAsync(cancellationToken);
+        await Guardar(cancellationToken);
         await tx.CommitAsync(cancellationToken);
         return factura;
     }
@@ -73,8 +74,22 @@ public sealed class EfBillingStore(BillingDbContext db) : IBillingStore
         }
 
         factura.Anular();
-        await db.SaveChangesAsync(cancellationToken);
+        await Guardar(cancellationToken);
         await tx.CommitAsync(cancellationToken);
         return factura;
+    }
+
+    // R18: una restricción única violada (RTN repetido, obligado creado dos veces en paralelo) es un conflicto
+    // de negocio y se responde 409; sin esta traducción la API devolvía 500.
+    private async Task Guardar(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            throw new BillingConflictException("Ya existe un registro con esos datos.", ex);
+        }
     }
 }

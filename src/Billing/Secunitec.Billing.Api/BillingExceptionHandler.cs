@@ -11,6 +11,7 @@ public sealed class BillingExceptionHandler : IExceptionHandler
         int status = exception switch
         {
             BillingAccessException => StatusCodes.Status403Forbidden,
+            BillingConflictException => StatusCodes.Status409Conflict,
             KeyNotFoundException => StatusCodes.Status404NotFound,
             BillingRuleException => StatusCodes.Status400BadRequest,
             _ => 0

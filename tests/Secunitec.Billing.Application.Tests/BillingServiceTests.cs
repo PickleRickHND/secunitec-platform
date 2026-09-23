@@ -48,6 +48,20 @@ public sealed class BillingServiceTests
         await Assert.ThrowsAsync<BillingAccessException>(() => service.Emitir(Guid.NewGuid(), new DateOnly(2026, 9, 22), CancellationToken.None));
     }
 
+    [Fact]
+    public async Task CrearObligado_TenantYaRegistrado_Conflicto()
+    {
+        FakeStore store = new();
+        Guid tenant = Guid.NewGuid();
+        store.Obligados[tenant] = CrearObligado(tenant);
+        BillingService service = Servicio(store, new FakeUser(tenant, SecunitecRoles.Admin));
+
+        await Assert.ThrowsAsync<BillingConflictException>(() => service.CrearObligado(new NuevoObligado(
+            "08011999654321", "Otra", "AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FF", "000-001-01", 1, 10,
+            new DateOnly(2026, 12, 31)), TestContext.Current.CancellationToken));
+        Assert.Single(store.Obligados);
+    }
+
     private static ObligadoTributario CrearObligado(Guid id) => new(id, "08011999123456", "Empresa",
         "AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FF", "000-001-01", 1, 10, new DateOnly(2026, 12, 31));
 
