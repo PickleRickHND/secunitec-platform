@@ -98,7 +98,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "locale",
           "decimals": 0,
           "color": {
             "mode": "thresholds"
@@ -160,7 +160,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "locale",
           "decimals": 0,
           "color": {
             "mode": "thresholds"
@@ -222,7 +222,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "locale",
           "decimals": 0,
           "color": {
             "mode": "thresholds"
@@ -301,7 +301,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "Sin 429"
         },
         "overrides": []
       },
@@ -496,7 +497,7 @@
       "options": {
         "legend": {
           "displayMode": "table",
-          "placement": "bottom",
+          "placement": "right",
           "calcs": [
             "lastNotNull",
             "max",

@@ -34,6 +34,8 @@ test-results/
 tests/jmeter/results/
 *.jtl
 jmeter.log
+# Entorno de Python de scripts/stress/analizar.py (etapa 5.3)
+.venv-stress/
 
 # Docker / datos locales
 .docker-data/

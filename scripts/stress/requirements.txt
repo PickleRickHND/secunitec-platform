@@ -1,0 +1,2 @@
+# Solo para scripts/stress/analizar.py (etapa 5.3): gráficas de las pruebas de estrés.
+matplotlib==3.11.2

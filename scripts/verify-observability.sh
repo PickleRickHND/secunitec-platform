@@ -135,6 +135,11 @@ evidence "PromQL: sum by (client, server) (traces_service_graph_request_total)" 
 check "Service graph: gateway → billing → postgres" "echo \"$graph\" | grep -q 'client=secunitec-gateway server=secunitec-billing' && echo \"$graph\" | grep -q 'client=secunitec-billing server=postgres'"
 
 section "Trazas (Tempo)"
+# Con OTEL_TRACE_SAMPLE_RATIO < 1 (pruebas de estrés, docs/05) la traza de esta verificación puede no guardarse.
+ratio=$(docker inspect "$(docker compose -f docker-compose.yml -f docker-compose.observability.yml ps -q gateway)" \
+    --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^Telemetry__TraceSampleRatio=' | cut -d= -f2)
+check "Muestreo de trazas al 100 % (si no: recrear gateway, identity y billing sin OTEL_TRACE_SAMPLE_RATIO)" \
+    "python3 -c 'import sys; sys.exit(0 if float(\"${ratio:-1}\") >= 1 else 1)'"
 trace_id=""
 for _ in $(seq 1 12); do
     trace_id=$(grafana -G --data-urlencode "q={span.secunitec.correlation_id=\"$CORRELATION\"}" \
