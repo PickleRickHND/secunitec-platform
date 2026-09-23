@@ -5,7 +5,7 @@
 | Curso | Arquitectura de Sistemas Informáticos, UNITEC, Q3-2026 (Prof. Kevin Fúnez) |
 | Proyecto | Arquitectura y Ciberseguridad: Auditoría, Diseño y Resiliencia para Secunitec Corp. |
 | Repositorio | `PickleRickHND/secunitec-platform` (público, monorepo) |
-| Estado | Aprobado; Etapa 1 en curso (ver §7.1) |
+| Estado | Aprobado; 1.1 completo, 1.2 a 2.2 parciales (pendientes en el README) |
 | Última actualización | 2026-09-22 |
 
 Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué decidimos, cómo se estructura el repo y en qué orden se construye. Cada requisito tiene un ID (`R01`...) que se referencia desde el código, los diagramas y las pruebas para demostrar la "coherencia estricta" que exige el criterio de evaluación (a).

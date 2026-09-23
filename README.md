@@ -10,10 +10,10 @@ Este README es el tablero del proyecto: el plan por etapas, qué está hecho y q
 | Etapa | Punto | Pista | Estado |
 |---|---|---|---|
 | 1 · Cimientos (sin Docker) | 1.1 Proyecto base, reglas comunes y contrato del token | A | **Completado** ([PR #1](https://github.com/PickleRickHND/secunitec-platform/pull/1)) |
-| | 1.2 Reglas de facturación (`Billing.Domain`) | B | Implementado; pruebas locales pendientes de ejecutar |
-| | 1.3 Acciones de facturación (`Billing.Application`) | B | Implementado; pruebas locales pendientes de ejecutar |
-| 2 · Bases de datos (se enciende Docker) | 2.1 Postgres, Mongo y Redis en contenedores | B | Configurado; pendiente de levantar y comprobar `healthy` |
-| | 2.2 Facturación conectada y expuesta (`Infrastructure` + `Api`) | B | Implementado; pendiente de probar con Docker y token |
+| | 1.2 Reglas de facturación (`Billing.Domain`) | B | **Parcial** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2)); ver [pendientes](#pendientes-de-12-a-22) |
+| | 1.3 Acciones de facturación (`Billing.Application`) | B | **Parcial** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2)); ver [pendientes](#pendientes-de-12-a-22) |
+| 2 · Bases de datos (se enciende Docker) | 2.1 Postgres, Mongo y Redis en contenedores | B | **Parcial** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2)); ver [pendientes](#pendientes-de-12-a-22) |
+| | 2.2 Facturación conectada y expuesta (`Infrastructure` + `Api`) | B | **Parcial** ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2)); ver [pendientes](#pendientes-de-12-a-22) |
 | 3 · Seguridad | 3.1 Identity (OAuth 2.0 / OIDC / JWT) | A | Pendiente |
 | | 3.2 Gateway (única entrada, 429, cabeceras) | A | Pendiente |
 | 4 · Fachada | 4.1 Frontend (login, facturas, panel 429) | C | Pendiente |
@@ -30,12 +30,25 @@ Pistas: **A** = Identity, Gateway, hardening · **B** = Billing y bases de datos
 | Componente | Tecnología | Carpeta | Estado |
 |---|---|---|---|
 | Bloques comunes | Contrato del token (roles, `tenant_id`, políticas), cabeceras de seguridad, correlation id, ProblemDetails, hardening de Kestrel | `src/BuildingBlocks` | Completado |
-| Core de facturación | .NET 10, Clean Architecture (Domain / Application / Infrastructure / Api), EF Core + PostgreSQL | `src/Billing` | Implementado; pendiente de validación local (1.2, 1.3, 2.2) |
-| Persistencia multi-modelo | PostgreSQL 17 (transaccional), MongoDB 8 (auditoría), Redis 7 (caché; contadores en etapa 3.2) | `infra/`, `docker-compose.yml` | Configurado; pendiente de encender Docker (2.1) |
+| Core de facturación | .NET 10, Clean Architecture (Domain / Application / Infrastructure / Api), EF Core + PostgreSQL | `src/Billing` | Parcial: flujo completo funcionando, faltan tests y funciones (1.2, 1.3, 2.2) |
+| Persistencia multi-modelo | PostgreSQL 17 (transaccional), MongoDB 8 (auditoría), Redis 7 (caché; contadores en etapa 3.2) | `infra/`, `docker-compose.yml` | Parcial: tres bases `healthy` en redes internas (2.1) |
 | Identity Provider | .NET 10 + OpenIddict (OAuth 2.0 / OIDC / JWT RS256) + ASP.NET Core Identity | `src/Identity` | Pendiente (3.1) |
 | API Gateway / Ingress Edge | YARP sobre .NET 10, rate limiting L7 con Redis, validación JWT, hardening de cabeceras | `src/Gateway` | Pendiente (3.2) |
 | Front-End | React 19 + Vite + TypeScript, SPA servida por nginx | `src/Frontend` | Pendiente (4.1) |
 | Observabilidad (Fase 4) | OpenTelemetry Collector, Prometheus, Tempo, Loki, Grafana, cAdvisor | `infra/`, `docker-compose.observability.yml` | Pendiente (5.2) |
+
+## Pendientes de 1.2 a 2.2
+
+Mergeado como parcial el 2026-09-22 ([PR #2](https://github.com/PickleRickHND/secunitec-platform/pull/2)). Funciona y está verificado: CI verde (build, formato, 72 tests, compose y gitleaks); con el compose real, el flujo crear → emitir → anular, permisos por rol y tenant, auditoría en Mongo, caché con Redis caído y correlativo sin huecos bajo concurrencia. Falta cumplir estos puntos del criterio de done de cada etapa:
+
+| Punto | Pendiente |
+|---|---|
+| 1.2 | Tests: `Cai` válido e inválido, redondeo explícito, emitir dos veces, cantidad no positiva. Value objects `Rtn`, `Cai` y `Money` (hoy son validadores). Motivo obligatorio al anular. Errores con códigos estables. `EventoAuditoria` como contrato del dominio |
+| 1.3 | Tests: flujo crear → emitir → anular, líneas vacías y montos negativos, Facturador puede emitir. Auditar accesos denegados. FluentValidation. Agregar y quitar líneas; listar con paginación y filtros; actualizar y listar clientes; actualizar CAI y activar o desactivar obligados |
+| 2.1 | Usuario de Mongo solo con inserción y lectura (hoy `readWrite`). Índices por `actor` y `correlationId`. Renombrar `FLUSHALL` y `CONFIG` en Redis |
+| 2.2 | `tests/Secunitec.Billing.Api.Tests` con Testcontainers: crear → emitir → anular por HTTP, correlativo bajo concurrencia, otro tenant denegado, evento de auditoría escrito. Filtro global de EF por `tenant_id`. Migración con `ModelSnapshot`. Respuestas con DTOs. Campos `Resultado`, `Ip` y `CorrelationId` en la auditoría |
+
+Decisiones pendientes del equipo: otro tenant recibe 404 en vez del 403 del plan (no revela qué facturas existen); un solo `IBillingStore` en vez de los puertos por agregado; Billing publica `127.0.0.1:8082` en la red `edge` hasta que exista el gateway (3.2).
 
 ## Ejecutar y comprobar las etapas 1.2–2.2
 
