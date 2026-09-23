@@ -265,6 +265,11 @@ echo
 echo "Resultado: $PASS PASS, $FAIL FAIL"
 
 if [ -n "$REPORT" ]; then
+    # Se calcula antes de reescribir el reporte, que si no aparecería siempre como cambio. Solo cuentan los cambios fuera de
+    # docs/: los reportes de evidencia no cambian lo que se verifica.
+    COMMIT=$(git rev-parse --short HEAD 2>/dev/null)
+    DIRTY=""
+    git diff --quiet -- . ':(exclude)docs' 2>/dev/null || DIRTY=" (con cambios sin commitear)"
     {
         echo "# 4.2 · Verificación del hardening"
         echo
@@ -273,7 +278,7 @@ if [ -n "$REPORT" ]; then
         echo "| Campo | Valor |"
         echo "|---|---|"
         echo "| Fecha | $(date -u '+%Y-%m-%d %H:%M UTC') |"
-        echo "| Commit | \`$(git rev-parse --short HEAD 2>/dev/null)\`$(git diff --quiet 2>/dev/null || echo ' (con cambios sin commitear)') |"
+        echo "| Commit | \`$COMMIT\`$DIRTY |"
         echo "| Docker | $(docker version --format '{{.Server.Version}}' 2>/dev/null), Compose $(docker compose version --short 2>/dev/null) |"
         echo "| Gateway / SPA | $BASE / $SPA |"
         echo "| Archivos de compose | \`$COMPOSE_FILES\` |"
