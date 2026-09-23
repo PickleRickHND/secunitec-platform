@@ -23,6 +23,10 @@ services:
       MONGO_INITDB_ROOT_USERNAME: secunitec_bootstrap
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ADMIN_PASSWORD:?Configurar MONGO_ADMIN_PASSWORD}
       MONGO_BILLING_PASSWORD: ${MONGO_BILLING_PASSWORD:?Configurar MONGO_BILLING_PASSWORD}
+      # La imagen trae rseq=0 para que TCMalloc use rseq, y ese camino falla con kernels 6.19 a 7.0.13
+      # (SERVER-121912): mongod 8 se niega a arrancar en Docker Desktop >= 4.86 (kernel 7.0.12).
+      # Con rseq=1 glibc conserva rseq y TCMalloc usa su modo sin rseq. Quitar cuando el kernel sea >= 7.0.14.
+      GLIBC_TUNABLES: glibc.pthread.rseq=1
     volumes:
       - mongo_data:/data/db
       - ./infra/mongo/init:/docker-entrypoint-initdb.d:ro
