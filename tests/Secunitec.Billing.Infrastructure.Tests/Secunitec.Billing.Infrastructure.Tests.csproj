@@ -3,6 +3,7 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Testcontainers" />
     <ProjectReference Include="../../src/Billing/Secunitec.Billing.Infrastructure/Secunitec.Billing.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

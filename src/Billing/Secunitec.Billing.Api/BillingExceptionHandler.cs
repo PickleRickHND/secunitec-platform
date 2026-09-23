@@ -4,25 +4,38 @@ using Secunitec.Billing.Domain;
 
 namespace Secunitec.Billing.Api;
 
+/// <summary>
+/// Traduce los errores de Billing a ProblemDetails con un <c>code</c> estable (etapa 1.2) y sin detalles internos
+/// (A05). R18: ningún error esperado llega como 500.
+/// </summary>
 public sealed class BillingExceptionHandler : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
-        int status = exception switch
+        IResult? result = exception switch
         {
-            BillingAccessException => StatusCodes.Status403Forbidden,
-            BillingConflictException => StatusCodes.Status409Conflict,
-            KeyNotFoundException => StatusCodes.Status404NotFound,
-            BillingRuleException => StatusCodes.Status400BadRequest,
-            _ => 0
+            BillingValidationException validation => Results.ValidationProblem(
+                validation.Errors.ToDictionary(x => x.Key, x => x.Value),
+                detail: validation.Message,
+                extensions: Code("validacion")),
+            BillingRuleException rule => Problem(StatusCodes.Status400BadRequest, rule.Message, rule.Code),
+            BillingAccessException access => Problem(StatusCodes.Status403Forbidden, access.Message, "acceso.denegado"),
+            BillingConflictException conflict => Problem(StatusCodes.Status409Conflict, conflict.Message, "conflicto"),
+            KeyNotFoundException notFound => Problem(StatusCodes.Status404NotFound, notFound.Message, "no_encontrado"),
+            _ => null,
         };
-        if (status == 0)
+
+        if (result is null)
         {
             return false;
         }
 
-        httpContext.Response.StatusCode = status;
-        await Results.Problem(statusCode: status, detail: exception.Message).ExecuteAsync(httpContext);
+        await result.ExecuteAsync(httpContext);
         return true;
     }
+
+    private static IResult Problem(int status, string detail, string code) =>
+        Results.Problem(statusCode: status, detail: detail, extensions: Code(code));
+
+    private static Dictionary<string, object?> Code(string code) => new() { ["code"] = code };
 }

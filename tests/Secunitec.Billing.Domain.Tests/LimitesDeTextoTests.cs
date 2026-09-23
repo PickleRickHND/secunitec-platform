@@ -21,7 +21,23 @@ public sealed class LimitesDeTextoTests
     }
 
     [Fact]
+    public void Cliente_Actualizar_ValidaIgualQueAlCrear()
+    {
+        Cliente cliente = new(Guid.NewGuid(), Guid.NewGuid(), "Cliente", null, null);
+
+        cliente.Actualizar("Cliente nuevo", new Rtn("08011999123456"), " correo@ejemplo.hn ");
+
+        Assert.Equal("Cliente nuevo", cliente.Nombre);
+        Assert.Equal("correo@ejemplo.hn", cliente.Email);
+        Assert.Throws<BillingRuleException>(() => cliente.Actualizar(Largo, null, null));
+    }
+
+    [Fact]
     public void Obligado_RazonSocialDe251Caracteres_Rechazada() =>
-        Assert.Throws<BillingRuleException>(() => new ObligadoTributario(Guid.NewGuid(), "08011999123456", Largo,
-            "AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FF", "000-001-01", 1, 10, new DateOnly(2026, 12, 31)));
+        Assert.Throws<BillingRuleException>(() => new ObligadoTributario(Guid.NewGuid(), new Rtn("08011999123456"), Largo,
+            new Cai("AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FF"), "000-001-01", 1, 10, new DateOnly(2026, 12, 31)));
+
+    [Fact]
+    public void Linea_DescripcionDe251Caracteres_Rechazada() =>
+        Assert.Throws<BillingRuleException>(() => new LineaFactura(Largo, 1, 1, false));
 }
