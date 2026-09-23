@@ -28,6 +28,7 @@ namespace Secunitec.Gateway.Tests;
 public sealed class GatewayFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     public const string Issuer = "https://gateway.test/";
+    public const string SpaOrigin = "http://spa.test";
     public const int TokenEndpointLimit = 5;
     public const int AnonymousLimit = 10;
     public const int UserLimit = 10;
@@ -99,6 +100,8 @@ public sealed class GatewayFactory : WebApplicationFactory<Program>, IAsyncLifet
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("Jwt:Authority", Issuer);
+        // Con barra final a propósito: la política debe normalizarla.
+        builder.UseSetting("Cors:AllowedOrigins:0", SpaOrigin + "/");
         builder.UseSetting("Redis:ConnectionString", "127.0.0.1:1,abortConnect=false,connectTimeout=100,connectRetry=0");
         builder.UseSetting("RateLimiting:TokenEndpointPermitLimit", TokenEndpointLimit.ToString(System.Globalization.CultureInfo.InvariantCulture));
         builder.UseSetting("RateLimiting:AnonymousPermitLimit", AnonymousLimit.ToString(System.Globalization.CultureInfo.InvariantCulture));

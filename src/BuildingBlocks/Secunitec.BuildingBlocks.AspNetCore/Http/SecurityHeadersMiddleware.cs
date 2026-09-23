@@ -42,7 +42,10 @@ public sealed class SecurityHeadersMiddleware
             headers["Referrer-Policy"] = _options.ReferrerPolicy;
             headers["Permissions-Policy"] = _options.PermissionsPolicy;
 
-            if (!string.IsNullOrWhiteSpace(_options.ContentSecurityPolicy))
+            // Una CSP que ya trae la respuesta es más específica que la de este servicio: el gateway reenvía las
+            // páginas de Identity con su propia CSP (estilos y fuentes 'self') y no debe pisarla con default-src 'none'.
+            if (!string.IsNullOrWhiteSpace(_options.ContentSecurityPolicy) &&
+                !headers.ContainsKey(HeaderNames.ContentSecurityPolicy))
             {
                 headers[HeaderNames.ContentSecurityPolicy] = _options.ContentSecurityPolicy;
             }

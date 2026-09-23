@@ -135,6 +135,76 @@ public sealed class GatewayContractTests : IClassFixture<GatewayFactory>
     }
 
     [Fact]
+    public async Task Cors_PreflightDelSpa_SeRespondeSinLlegarAlServicioNiGastarCupo()
+    {
+        string ip = NewIp();
+        using HttpClient client = Client(ip);
+
+        // Más preflights que el cupo de la partición: ninguno cuenta ni llega al servicio.
+        for (int i = 0; i <= GatewayFactory.UserLimit; i++)
+        {
+            using HttpResponseMessage preflight = await client.SendAsync(Preflight("/api/billing/preflight", GatewayFactory.SpaOrigin), Ct);
+            Assert.Equal(HttpStatusCode.NoContent, preflight.StatusCode);
+            Assert.Equal(GatewayFactory.SpaOrigin, preflight.Headers.GetValues("Access-Control-Allow-Origin").Single());
+        }
+
+        using HttpClient withToken = Client(ip, GatewayFactory.CreateToken());
+        using HttpResponseMessage real = await withToken.GetAsync("/api/billing/preflight", Ct);
+
+        Assert.Equal(HttpStatusCode.OK, real.StatusCode);
+        Assert.Equal(1, _factory.BackendHits["/api/billing/preflight"]);
+    }
+
+    [Fact]
+    public async Task Cors_OrigenNoPermitido_NoRecibeAllowOrigin()
+    {
+        using HttpClient client = Client(NewIp());
+
+        using HttpResponseMessage preflight = await client.SendAsync(Preflight("/api/billing/facturas", "https://atacante.test"), Ct);
+
+        Assert.False(preflight.Headers.Contains("Access-Control-Allow-Origin"));
+    }
+
+    [Fact]
+    public async Task Cors_401Y429_LlevanAllowOriginYExponenRetryAfter()
+    {
+        using HttpClient client = Client(NewIp());
+        client.DefaultRequestHeaders.Add("Origin", GatewayFactory.SpaOrigin);
+        List<HttpResponseMessage> responses = [];
+
+        try
+        {
+            for (int i = 0; i <= GatewayFactory.UserLimit; i++)
+            {
+                responses.Add(await client.GetAsync("/api/billing/cors", Ct));
+            }
+
+            HttpResponseMessage unauthorized = responses[0];
+            HttpResponseMessage limited = responses[^1];
+            Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+            Assert.Equal(GatewayFactory.SpaOrigin, unauthorized.Headers.GetValues("Access-Control-Allow-Origin").Single());
+            await AssertRateLimited(limited);
+            Assert.Equal(GatewayFactory.SpaOrigin, limited.Headers.GetValues("Access-Control-Allow-Origin").Single());
+            Assert.Contains("Retry-After", limited.Headers.GetValues("Access-Control-Expose-Headers").Single(), StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            responses.ForEach(response => response.Dispose());
+        }
+    }
+
+    [Fact]
+    public async Task Cors_PaginasDeCuenta_NoAdmitenOtroOrigen()
+    {
+        // /account es navegación de página completa: no necesita CORS y no lo declara.
+        using HttpClient client = Client(NewIp());
+
+        using HttpResponseMessage preflight = await client.SendAsync(Preflight("/account/login", GatewayFactory.SpaOrigin), Ct);
+
+        Assert.False(preflight.Headers.Contains("Access-Control-Allow-Origin"));
+    }
+
+    [Fact]
     public async Task Health_ConRedisCaido_Devuelve200()
     {
         // La fábrica apunta Redis a un puerto cerrado: el rate limiting usa el respaldo en memoria, sin 500.
@@ -166,6 +236,15 @@ public sealed class GatewayContractTests : IClassFixture<GatewayFactory>
         }
 
         return client;
+    }
+
+    private static HttpRequestMessage Preflight(string path, string origin)
+    {
+        HttpRequestMessage request = new(HttpMethod.Options, path);
+        request.Headers.Add("Origin", origin);
+        request.Headers.Add("Access-Control-Request-Method", "GET");
+        request.Headers.Add("Access-Control-Request-Headers", "authorization,x-correlation-id");
+        return request;
     }
 
     private static async Task AssertRateLimited(HttpResponseMessage response)
