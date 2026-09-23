@@ -23,6 +23,12 @@ if (testMode && Encoding.UTF8.GetByteCount(testKey!) < 32)
     throw new InvalidOperationException("La clave de prueba debe tener al menos 32 bytes.");
 }
 
+// El valor de .env.example es público (está en el repo): con él cualquiera firmaría tokens de cualquier tenant y rol.
+if (testMode && testKey!.StartsWith("CAMBIAR", StringComparison.Ordinal))
+{
+    throw new InvalidOperationException("BILLING_TEST_JWT_KEY conserva el valor de ejemplo; genere una clave propia.");
+}
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
 {
     options.MapInboundClaims = false;
