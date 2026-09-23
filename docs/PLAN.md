@@ -5,7 +5,7 @@
 | Curso | Arquitectura de Sistemas Informáticos, UNITEC, Q3-2026 (Prof. Kevin Fúnez) |
 | Proyecto | Arquitectura y Ciberseguridad: Auditoría, Diseño y Resiliencia para Secunitec Corp. |
 | Repositorio | `PickleRickHND/secunitec-platform` (público, monorepo) |
-| Estado | Aprobado; etapas 1 a 4 completas (1.1 a 4.2); pendientes menores y etapa 5 en el README |
+| Estado | Aprobado; etapas 1 a 4 completas (1.1 a 4.2); etapa 5 en curso (5.2 lista; 5.3 y 5.1 en la rama `feature/5-evidencia`; 5.4 después) |
 | Última actualización | 2026-09-23 |
 
 Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué decidimos, cómo se estructura el repo y en qué orden se construye. Cada requisito tiene un ID (`R01`...) que se referencia desde el código, los diagramas y las pruebas para demostrar la "coherencia estricta" que exige el criterio de evaluación (a).
@@ -38,6 +38,11 @@ Este documento es la fuente de verdad del proyecto: qué pide el enunciado, qué
 | Configuración del SPA (4.1) | URL del gateway y CSP de nginx fijadas al construir la imagen | Plantillas de nginx en tiempo de ejecución | Compatible con `read_only`; cambiar la URL exige `--build` |
 | Dirección visual (4.1) | "Institucional sobrio" (skill frontend-design): Public Sans self-hosted, azul institucional como único acento; la misma identidad en el login de Identity. Gráfica en SVG propio con la paleta de referencia del skill dataviz, validada | Librería de gráficas | Sin dependencias ni CSS en línea (CSP) y con la paleta validada para daltonismo |
 | Usuarios de Mongo (4.2) | Servicio `mongo-setup` idempotente en cada `up` | Scripts de `/docker-entrypoint-initdb.d` | Los init scripts solo corren con el volumen vacío; el servicio también corrige volúmenes existentes |
+| Red de la observabilidad (5.2) | `observability` internal; el collector recibe OTLP en `backend` y reparte en `observability`; Grafana también en `edge` solo para publicar `127.0.0.1:3001` | Servicios unidos a una `observability` con salida | Identity y Billing no ganan salida a Internet y nada de la observabilidad sale, salvo el puerto de Grafana en localhost |
+| Contexto de traza en el borde (5.2, TB0) | El gateway descarta `traceparent`, `tracestate` y `baggage` del cliente y abre una traza nueva; hacia adentro propaga el suyo | Aceptar el contexto del cliente | Un cliente de Internet no elige el trace id ni inyecta baggage en los servicios internos |
+| Instrumentación (5.2) | Solo paquetes OpenTelemetry estables; fuentes nativas de Npgsql, MongoDB.Driver y YARP | Instrumentaciones de Redis y EF Core | Siguen en beta (1.19.0-beta.1); las consultas a Postgres y Mongo aparecen igual en las trazas |
+| cAdvisor (5.2) | Sin root (uid 65534, grupo 0), con el socket de Docker en solo lectura y `pid: host` | Root o sin red por contenedor | La red por contenedor del USE lo exige; es un riesgo aceptado y documentado (docs/06, STRIDE) |
+| Métrica del `Retry-After` (5.2) | Histograma `secunitec.gateway.retry_after` además de los dos contadores del plan | Solo los contadores | El panel "Retry-After" del criterio de 5.2 necesitaba el dato |
 
 ---
 
@@ -129,7 +134,7 @@ flowchart LR
   LK --> GF
 ```
 
-Solo `gateway` (8080), `frontend` (3000) y `grafana` (3001) publican puertos en el host. `backend` y `data` son redes `internal: true`: ni las bases de datos ni los microservicios son alcanzables desde fuera del compose.
+Solo `gateway` (8080), `frontend` (3000) y `grafana` (3001) publican puertos en el host, y solo en 127.0.0.1. `backend`, `data` y `observability` son redes `internal: true`: ni las bases de datos, ni los microservicios, ni la observabilidad son alcanzables desde fuera del compose. En la práctica (5.2), el OTLP de los tres servicios llega al collector por `backend`: el collector es el único contenedor en `backend` y `observability` a la vez, y Grafana publica su puerto a través de `edge`.
 
 ### 2.2 Flujo de autenticación (OIDC Authorization Code + PKCE)
 
@@ -182,7 +187,7 @@ sequenceDiagram
 | TB0 | Internet → edge | Navegador, JMeter | TLS (dev cert) en gateway, rate limiting, validación JWT, headers de seguridad, límites de tamaño y timeouts. Implementado en 3.2: HTTPS en `https://localhost:8080` y HSTS fuera de `localhost` (ver `docs/problemas-conocidos.md`). En 4.1: CORS solo para el origen del SPA; el SPA en nginx sin privilegios con CSP estricta |
 | TB1 | edge → backend | Solo el gateway | Red `internal`, JWT re-validado en cada microservicio, `X-Forwarded-*` controlados |
 | TB2 | backend → data | Identity y Billing | Red `internal`, credenciales distintas por servicio y por base, sin puertos publicados |
-| TB3 | servicios → observability | Exportadores OTLP | Red separada, Grafana con login, sin datos sensibles en trazas |
+| TB3 | servicios → observability | Exportadores OTLP | Red separada. Implementado en 5.2:<br>- `observability` internal; solo el collector la cruza desde `backend`.<br>- Grafana con login y solo en `127.0.0.1:3001`.<br>- Sin datos sensibles en trazas: sin cabeceras ni query string (el collector borra lo que quede).<br>- Métricas sin IP, `sub` ni tenant.<br>Ver `docs/06-innovacion-opentelemetry.md` |
 
 ---
 
@@ -275,11 +280,12 @@ secunitec-platform/
 │   ├── prometheus/prometheus.yml
 │   ├── tempo/tempo.yaml
 │   ├── loki/loki.yaml
-│   └── grafana/provisioning/{datasources,dashboards}/
+│   └── grafana/{provisioning/{datasources,dashboards},dashboards}/   # 3 dashboards provisionados (5.2)
 ├── scripts/
 │   ├── stress/run-jmeter.sh
 │   ├── stress/capture-docker-stats.sh     # docker stats → CSV cada segundo
 │   ├── verify-hardening.sh                # curl, docker inspect/top, redes; --report escribe docs/04
+│   ├── verify-observability.sh            # 5.2: tráfico real → Prometheus, Tempo y Loki; --report escribe docs/evidencia/5.2
 │   └── export-diagrams.sh                 # Mermaid → PNG/SVG para el informe
 ├── docs/
 │   ├── PLAN.md                            # este documento
@@ -290,6 +296,7 @@ secunitec-platform/
 │   ├── 05-pruebas-estres-use.md
 │   ├── 06-innovacion-opentelemetry.md
 │   ├── trazabilidad.md                    # R → amenaza → OWASP → archivo:línea → prueba
+│   ├── evidencia/                         # capturas y reportes generados de 5.2 y 5.3
 │   ├── informe/                           # DOCX final y fuentes
 │   └── presentacion/                      # PPTX final
 └── .github/workflows/ci.yml               # build + test .NET, lint + test front, compose config, gitleaks
@@ -310,7 +317,9 @@ secunitec-platform/
 | FluentValidation | 12.1.1 |
 | StackExchange.Redis | 3.3.0 |
 | RedisRateLimiting (comunitario; verificado en 3.2: soporta .NET 10 y su repo tuvo actividad en agosto de 2026) | 1.2.1 |
-| OpenTelemetry.* | 1.19.x |
+| OpenTelemetry.Extensions.Hosting / Exporter.OpenTelemetryProtocol (5.2) | 1.19.1 |
+| OpenTelemetry.Instrumentation.AspNetCore / Http (5.2) | 1.19.0 (Redis y EF Core no: siguen en beta) |
+| Microsoft.Extensions.Diagnostics.Testing (5.2, tests) | 10.10.0 |
 | Microsoft.AspNetCore.Authentication.JwtBearer | 10.0.12 |
 | xunit.v3 / xunit.runner.visualstudio | 4.0.1 / 4.0.0 (modo Microsoft.Testing.Platform; sin `Microsoft.NET.Test.Sdk`) |
 | Microsoft.AspNetCore.TestHost | 10.0.12 |
@@ -323,7 +332,8 @@ secunitec-platform/
 | @fontsource-variable/public-sans (4.1) | 5.3.0 (OFL; también copiada en el login de Identity) |
 | Testcontainers (núcleo, 4) | 4.15.0 (Redis con el `redis.conf` real en `Billing.Infrastructure.Tests`) |
 | dotnet-ef (herramienta local, `dotnet-tools.json`) | 10.0.12 |
-| Imágenes | `postgres:17-alpine`, `mongo:8`, `redis:7-alpine`, `nginxinc/nginx-unprivileged:alpine`, `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra`, `otel/opentelemetry-collector-contrib`, `prom/prometheus`, `grafana/tempo`, `grafana/loki`, `grafana/grafana`, `gcr.io/cadvisor/cadvisor` |
+| Imágenes | `postgres:17-alpine`, `mongo:8`, `redis:7-alpine`, `nginxinc/nginx-unprivileged:alpine`, `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra` |
+| Imágenes de observabilidad (5.2, verificadas el 2026-09-23) | `otel/opentelemetry-collector-contrib:0.161.0`, `prom/prometheus:v3.14.0`, `grafana/tempo:3.0.3` (monolítico, sin Kafka), `grafana/loki:3.7.8`, `grafana/grafana:13.2.2`, `ghcr.io/google/cadvisor:v0.60.6` (ya no se publica en `gcr.io`) |
 | Herramientas locales | Docker 29 + Compose v5.5, JMeter (Homebrew) + Java 23, Node 22 + pnpm 11.24 solo para desarrollo del front y los E2E (el compose construye el SPA en multi-stage) |
 
 ---

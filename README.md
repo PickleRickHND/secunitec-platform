@@ -19,7 +19,7 @@ Este README es el tablero del proyecto: el plan por etapas, qué está hecho y q
 | 4 · Fachada | 4.1 Frontend (login, facturas, panel 429) | C | **Completado** ([PR #4](https://github.com/PickleRickHND/secunitec-platform/pull/4)) |
 | | 4.2 Endurecer y verificar | A | **Completado** ([PR #4](https://github.com/PickleRickHND/secunitec-platform/pull/4)) |
 | 5 · Evidencia e informe | 5.1 Amenazas (STRIDE, SecurUML, OWASP) | Todos | Pendiente |
-| | 5.2 Telemetría (OpenTelemetry + Grafana) | C | Pendiente |
+| | 5.2 Telemetría (OpenTelemetry + Grafana) | C | **Completado** (rama `feature/5-evidencia`); ver [docs/06](docs/06-innovacion-opentelemetry.md) |
 | | 5.3 Pruebas de estrés (JMeter, USE) | C | Pendiente |
 | | 5.4 Informe técnico y presentación | Todos | Pendiente |
 
@@ -38,7 +38,7 @@ La etapa 4 cerró también los pendientes de 1.2 a 2.2: el SPA los necesitaba. E
 | API Gateway / Ingress Edge | YARP sobre .NET 10, TLS, rate limiting L7 con Redis, validación JWT, CORS del SPA, hardening de cabeceras | `src/Gateway` | Completado (3.2) |
 | Front-End | React 19 + Vite + TypeScript, SPA servida por nginx sin privilegios con CSP estricta | `src/Frontend` | Completado (4.1) |
 | Hardening | Contenedores sin root, sin capabilities, de solo lectura y con límites; verificación reproducible | `docker-compose.yml`, `scripts/verify-hardening.sh` | Completado (4.2) |
-| Observabilidad (Fase 4) | OpenTelemetry Collector, Prometheus, Tempo, Loki, Grafana, cAdvisor | `infra/`, `docker-compose.observability.yml` | Pendiente (5.2) |
+| Observabilidad (Fase 4) | OpenTelemetry (trazas, métricas y logs por OTLP), Collector, Prometheus, Tempo, Loki, cAdvisor y Grafana con tres dashboards | `docker-compose.observability.yml`, `infra/{otel,prometheus,tempo,loki,grafana}` | Completado (5.2) |
 
 ## Pendientes
 
@@ -53,7 +53,7 @@ Quedan fuera del criterio de done de sus etapas:
 
 ## Ejecutar el sistema
 
-Requisitos: .NET SDK 10.0.400, Docker con Compose, Python 3 y, para los E2E, Node 22 con pnpm 11. Solo el gateway (`https://localhost:8080`) y el Front-End (`http://localhost:3000`) publican puertos, y solo en 127.0.0.1.
+Requisitos: .NET SDK 10.0.400, Docker con Compose, Python 3 y, para los E2E, Node 22 con pnpm 11. Solo el gateway (`https://localhost:8080`), el Front-End (`http://localhost:3000`) y, con la observabilidad, Grafana (`http://localhost:3001`) publican puertos, y solo en 127.0.0.1.
 
 ```bash
 dotnet test Secunitec.slnx -c Release       # los tests de Identity y Billing levantan Postgres, Mongo y Redis con Testcontainers
@@ -64,6 +64,16 @@ docker compose --profile security up -d --build
 docker compose --profile security ps         # bases y frontend en healthy; mongo-setup termina con código 0
 scripts/verify-hardening.sh --report         # controles de 3.2 y 4.2: debe terminar con 0 FAIL
 ```
+
+Con la observabilidad de la Fase 4 (etapa 5.2; en `.env`, `GRAFANA_ADMIN_PASSWORD`):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile security --profile observability up -d --build
+scripts/verify-observability.sh --report     # métricas propias, traza gateway → billing → Postgres y logs
+scripts/verify-hardening.sh --report         # incluye los contenedores nuevos y los controles de TB3
+```
+
+Grafana queda en `http://localhost:3001` (usuario `admin`), con los dashboards "Resiliencia del gateway", "USE Overview" y "Trazas". Detalle en [docs/06](docs/06-innovacion-opentelemetry.md).
 
 Con eso:
 

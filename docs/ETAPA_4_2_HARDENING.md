@@ -42,7 +42,7 @@ Otros cambios del hardening:
 | R09 | Preflight del SPA 204 con `Access-Control-Allow-Origin`; origen ajeno sin CORS; el 401 lleva CORS |
 | Front-End | CSP con `connect-src` limitado al gateway, sin `unsafe-*`; cabeceras también en errores; `Server` sin versión |
 | 4.2 | Por contenedor: usuario, uid real de cada proceso (`docker top`), `cap_drop`, solo lectura, `no-new-privileges` y límites. Billing con 0.5 CPU y 256 MiB. Ningún secreto literal en el compose |
-| R12 y TB2 | Solo el gateway y el Front-End publican puertos, y solo en 127.0.0.1; `backend` y `data` internas |
+| R12 y TB2 | Solo el gateway y el Front-End publican puertos (y Grafana desde la etapa 5.2), y solo en 127.0.0.1; `backend` y `data` internas (y `observability`). **Corregido en 5.2:** los dos controles de puertos leían `{{.Publishers}}`, cuyo formato nunca contiene `->`, así que no podían fallar; ahora leen `{{.Ports}}` y se probaron con entradas malas |
 | 2.1 | Redis sin `CONFIG` ni `FLUSHALL`; `billing_audit` no puede borrar la auditoría |
 | R02 y R10 | 429 con `Retry-After` y JSON en `/connect/token`; el 429 lleva CORS y expone `Retry-After`; contadores en Redis y ningún aviso del respaldo en memoria |
 
