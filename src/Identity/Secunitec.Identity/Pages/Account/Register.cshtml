@@ -1,0 +1,21 @@
+@page
+@model RegisterModel
+@{
+    ViewData["Title"] = "Crear cuenta";
+}
+<h2>Crear cuenta</h2>
+@if (Model.Errors.Count > 0)
+{
+    <ul role="alert">
+        @foreach (string error in Model.Errors)
+        {
+            <li>@error</li>
+        }
+    </ul>
+}
+<form method="post">
+    <p><label>Correo <input asp-for="Email" type="email" autocomplete="username" required></label></p>
+    <p><label>Contraseña <input asp-for="Password" type="password" autocomplete="new-password" required></label></p>
+    <p><button type="submit">Crear cuenta</button></p>
+</form>
+<p><a asp-page="/Account/Login">Ya tengo cuenta</a></p>
