@@ -32,8 +32,19 @@ public static class IdentitySeeder
         Guid tenantId = RequiredGuid(configuration, "Identity:SeedAdminTenantId");
         await EnsureUserAsync(users,
             configuration["Identity:SeedAdminEmail"] ?? throw new InvalidOperationException("Configure Identity:SeedAdminEmail."),
-            configuration["Identity:SeedAdminPassword"] ?? throw new InvalidOperationException("Configure Identity:SeedAdminPassword."),
+            RequiredSecret(configuration, "Identity:SeedAdminPassword"),
             tenantId, SecunitecRoles.Admin, clienteId: null);
+
+        // Usuarios de demostración, uno por rol, en el tenant del administrador (H2). Solo si hay contraseña de
+        // demo configurada; el cliente_id apunta al cliente que Billing siembra en Development.
+        if (!string.IsNullOrWhiteSpace(configuration["Identity:SeedDemoPassword"]))
+        {
+            string demoPassword = RequiredSecret(configuration, "Identity:SeedDemoPassword");
+            await EnsureUserAsync(users, "facturador@secunitec.local", demoPassword, tenantId, SecunitecRoles.Facturador, clienteId: null);
+            await EnsureUserAsync(users, "auditor@secunitec.local", demoPassword, tenantId, SecunitecRoles.Auditor, clienteId: null);
+            await EnsureUserAsync(users, "cliente@secunitec.local", demoPassword, tenantId, SecunitecRoles.Cliente,
+                RequiredGuid(configuration, "Identity:SeedClienteId"));
+        }
 
         await EnsureClientsAsync(provider.GetRequiredService<IOpenIddictApplicationManager>(), configuration);
     }
@@ -71,8 +82,7 @@ public static class IdentitySeeder
             await applications.CreateAsync(new OpenIddictApplicationDescriptor
             {
                 ClientId = ConnectEndpoints.JmeterClientId,
-                ClientSecret = configuration["Identity:JmeterClientSecret"]
-                    ?? throw new InvalidOperationException("Configure Identity:JmeterClientSecret."),
+                ClientSecret = RequiredSecret(configuration, "Identity:JmeterClientSecret"),
                 ClientType = OpenIddictConstants.ClientTypes.Confidential,
                 ConsentType = OpenIddictConstants.ConsentTypes.Implicit,
                 DisplayName = "JMeter Load Test",
@@ -112,6 +122,21 @@ public static class IdentitySeeder
         }
 
         await users.AddToRoleAsync(user, role);
+    }
+
+    // Los valores CAMBIAR_* de .env.example son públicos (están en el repo): con ellos cualquiera obtendría
+    // tokens de jmeter-load o entraría como administrador.
+    internal static string RequiredSecret(IConfiguration configuration, string key)
+    {
+        string? value = configuration[key];
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidOperationException($"Configure {key}.");
+        }
+
+        return value.StartsWith("CAMBIAR", StringComparison.Ordinal)
+            ? throw new InvalidOperationException($"{key} conserva el valor de ejemplo de .env.example; defina uno propio.")
+            : value;
     }
 
     internal static Guid RequiredGuid(IConfiguration configuration, string key) =>

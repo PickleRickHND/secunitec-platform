@@ -69,6 +69,9 @@ services:
       Identity__SeedAdminTenantId: ${IDENTITY_SEED_ADMIN_TENANT_ID:?Configurar IDENTITY_SEED_ADMIN_TENANT_ID}
       Identity__JmeterClientSecret: ${IDENTITY_JMETER_CLIENT_SECRET:?Configurar IDENTITY_JMETER_CLIENT_SECRET}
       Identity__JmeterTenantId: ${IDENTITY_JMETER_TENANT_ID:?Configurar IDENTITY_JMETER_TENANT_ID}
+      # Opcional: usuarios de demostración por rol (facturador@, auditor@ y cliente@secunitec.local).
+      Identity__SeedDemoPassword: ${IDENTITY_SEED_DEMO_PASSWORD:-}
+      Identity__SeedClienteId: ${SEED_CLIENTE_ID:-00000000-0000-0000-0000-0000000000c1}
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,6 +94,9 @@ services:
       Jwt__Authority: ${SECUNITEC_PUBLIC_URL:-https://localhost:8080}/
       Jwt__InternalAuthority: http://identity:8080/
       Billing__TestJwtKey: ${BILLING_TEST_JWT_KEY:-}
+      # Development: obligado y cliente de demostración en el tenant de ejemplo (el cliente del usuario cliente@).
+      Billing__Seed__TenantId: ${IDENTITY_SEED_ADMIN_TENANT_ID:-}
+      Billing__Seed__ClienteId: ${SEED_CLIENTE_ID:-00000000-0000-0000-0000-0000000000c1}
     depends_on:
       postgres:
         condition: service_healthy

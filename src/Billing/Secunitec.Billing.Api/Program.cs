@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -79,7 +80,20 @@ app.UseAuthorization();
 // Las migraciones se ejecutan una vez por despliegue; el rol billing solo tiene acceso a su base.
 using (IServiceScope scope = app.Services.CreateScope())
 {
-    await scope.ServiceProvider.GetRequiredService<BillingDbContext>().Database.MigrateAsync();
+    BillingDbContext db = scope.ServiceProvider.GetRequiredService<BillingDbContext>();
+    await db.Database.MigrateAsync();
+
+    // Datos de demostración solo en Development: obligado y cliente del tenant de ejemplo.
+    if (app.Environment.IsDevelopment() && app.Configuration["Billing:Seed:TenantId"] is { Length: > 0 } seedTenant)
+    {
+        await BillingDemoSeeder.SeedAsync(
+            db,
+            Guid.Parse(seedTenant, CultureInfo.InvariantCulture),
+            Guid.Parse(app.Configuration["Billing:Seed:ClienteId"]
+                ?? throw new InvalidOperationException("Configure Billing:Seed:ClienteId."), CultureInfo.InvariantCulture),
+            DateOnly.FromDateTime(DateTime.UtcNow),
+            CancellationToken.None);
+    }
 }
 
 RouteGroupBuilder api = app.MapGroup("/api/billing");
