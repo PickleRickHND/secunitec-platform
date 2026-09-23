@@ -384,7 +384,7 @@ Claims crudos, sin mapeo a `ClaimTypes.*`: `sub` (Guid), `role` (multivalor: `Ad
 | Riesgo | Mitigación |
 |---|---|
 | Docker Desktop apagado en la máquina de desarrollo (estado al 2026-09-21) | Encender antes de H1; documentar requisitos en README |
-| MongoDB 8 no arranca con kernels Linux 6.19 a 7.0.13 ([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)); Docker Desktop 4.92 trae 7.0.12 (estado al 2026-09-22) | `GLIBC_TUNABLES=glibc.pthread.rseq=1` en el servicio `mongo` del compose (TCMalloc sin rseq, algo menos de rendimiento del asignador). Quitarlo cuando Docker Desktop traiga un kernel 7.0.14 o posterior; fallback: `mongo:7` |
+| MongoDB 8 no arranca con kernels Linux 6.19 a 7.0.13 ([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)); Docker Desktop 4.92 trae 7.0.12 (estado al 2026-09-22) | Opcional, solo en las máquinas afectadas: `MONGO_GLIBC_TUNABLES=glibc.pthread.rseq=1` en `.env` (TCMalloc sin rseq, algo menos de rendimiento del asignador). Procedimiento en `docs/problemas-conocidos.md`; fallback: `mongo:7` |
 | Compatibilidad OpenIddict 7.7 con .NET 10 | Verificar changelog al iniciar H2; fallback a la última 6.x compatible |
 | `RedisRateLimiting` es un paquete comunitario | Verificar mantenimiento; fallback documentado: limiter en memoria (una sola instancia de gateway) |
 | JMeter sale de una sola IP: un límite por IP bloquearía todo al instante | Particiones por `sub`/`client_id` cuando hay token; por IP solo para anónimos; el plan usa varios clientes y usuarios |

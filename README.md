@@ -53,6 +53,8 @@ docker compose ps                     # esperar los tres estados healthy
 docker compose --profile billing up -d --build billing  # etapa 2.2
 ```
 
+Si Mongo no llega a `healthy` o gitleaks falla en CI, revisar [`docs/problemas-conocidos.md`](docs/problemas-conocidos.md).
+
 El script de inicialización de PostgreSQL crea `secunitec_billing` y `secunitec_identity` con usuarios diferentes; Mongo crea `secunitec_audit`. Los scripts de inicialización solo se ejecutan cuando el volumen está vacío: si cambiaste las contraseñas después del primer arranque, actualiza las credenciales en la base o crea un volumen nuevo **solo si puedes perder los datos de prueba**.
 
 En 2.2 la clave `BILLING_TEST_JWT_KEY` de `.env` activa tokens HMAC **solo** bajo `ASPNETCORE_ENVIRONMENT=Development`. Sirve para probar mientras no existe Identity; en Production se usa `Jwt:Authority` con firma y audiencia OIDC. Para generar un token de prueba con los mismos bytes de la clave (sin imprimirla):
