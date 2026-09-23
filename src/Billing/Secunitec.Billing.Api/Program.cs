@@ -30,11 +30,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         // Solo Development y clave explícita: facilita 2.2 mientras Identity se construye en 3.1.
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = true, ValidIssuer = "secunitec-test",
-            ValidateAudience = true, ValidAudience = SecunitecAudiences.Billing,
-            ValidateIssuerSigningKey = true, IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(testKey!)),
-            ValidateLifetime = true, ClockSkew = TimeSpan.FromSeconds(30),
-            NameClaimType = SecunitecClaims.Name, RoleClaimType = SecunitecClaims.Role
+            ValidateIssuer = true,
+            ValidIssuer = "secunitec-test",
+            ValidateAudience = true,
+            ValidAudience = SecunitecAudiences.Billing,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(testKey!)),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(30),
+            NameClaimType = SecunitecClaims.Name,
+            RoleClaimType = SecunitecClaims.Role
         };
     }
     else
@@ -45,8 +50,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = true, ValidateAudience = true, ValidateLifetime = true,
-            NameClaimType = SecunitecClaims.Name, RoleClaimType = SecunitecClaims.Role
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            NameClaimType = SecunitecClaims.Name,
+            RoleClaimType = SecunitecClaims.Role
         };
     }
 });

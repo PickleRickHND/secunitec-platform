@@ -1,4 +1,3 @@
-using Secunitec.Billing.Application;
 using Secunitec.Billing.Domain;
 using Secunitec.BuildingBlocks.Security;
 

@@ -1,5 +1,3 @@
-using Secunitec.Billing.Domain;
-
 namespace Secunitec.Billing.Domain.Tests;
 
 public sealed class FacturaTests
