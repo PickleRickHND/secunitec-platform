@@ -372,6 +372,7 @@ app.MapPost("/connect/token", async (
     HttpContext context,
     UserManager<ApplicationUser> users,
     IdentityPrincipalFactory principals,
+    IOpenIddictApplicationManager applications,
     IConfiguration configuration) =>
 {
     var request = context.GetOpenIddictServerRequest()
@@ -438,8 +439,18 @@ app.MapPost("/connect/token", async (
                 "Identity:JmeterTenantId debe ser un GUID.");
         }
 
+        // OpenIddict ya autenticó al cliente con su secreto antes de llegar aquí.
+        object application =
+            await applications.FindByClientIdAsync(request.ClientId!)
+            ?? throw new InvalidOperationException("La aplicación autenticada no existe.");
+        Guid applicationId = Guid.Parse(
+            await applications.GetIdAsync(application)
+            ?? throw new InvalidOperationException("La aplicación no tiene identificador."),
+            System.Globalization.CultureInfo.InvariantCulture);
+
         ClaimsPrincipal principal =
             principals.CreateClient(
+                applicationId,
                 "jmeter-load",
                 tenantId,
                 SecunitecRoles.Facturador,

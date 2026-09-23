@@ -78,7 +78,12 @@ public sealed class IdentityPrincipalFactory
         return principal;
     }
 
+    /// <summary>
+    /// Principal de una aplicación (client credentials). El <c>sub</c> es el GUID de la aplicación en OpenIddict:
+    /// el contrato exige un GUID (docs/PLAN.md §7.1) y Billing lo registra como actor de cada escritura.
+    /// </summary>
     public ClaimsPrincipal CreateClient(
+        Guid applicationId,
         string clientId,
         Guid tenantId,
         string role,
@@ -89,7 +94,7 @@ public sealed class IdentityPrincipalFactory
             OpenIddictConstants.Claims.Name,
             OpenIddictConstants.Claims.Role);
 
-        identity.SetClaim(OpenIddictConstants.Claims.Subject, clientId);
+        identity.SetClaim(OpenIddictConstants.Claims.Subject, applicationId.ToString());
         identity.SetClaim(OpenIddictConstants.Claims.Name, clientId);
         identity.SetClaim(SecunitecClaims.ClientId, clientId);
         identity.SetClaim(SecunitecClaims.TenantId, tenantId.ToString());

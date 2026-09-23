@@ -8,6 +8,8 @@ public sealed class BillingService(ICurrentUser currentUser, IBillingStore store
     private Guid Tenant => currentUser.TenantId is Guid id && id != Guid.Empty
         ? id : throw new BillingAccessException("Falta un tenant válido en el token.");
 
+    // Toda escritura resuelve el actor antes de tocar la base: si el token no trae un sub GUID, la operación se
+    // rechaza sin dejar cambios a medias ni sin auditar.
     private Guid Actor => currentUser.UserId is Guid id && id != Guid.Empty
         ? id : throw new BillingAccessException("Esta acción requiere un usuario.");
 
@@ -35,6 +37,7 @@ public sealed class BillingService(ICurrentUser currentUser, IBillingStore store
     public async Task<ObligadoTributario> CrearObligado(NuevoObligado request, CancellationToken cancellationToken)
     {
         Requerir(SecunitecRoles.Admin);
+        Guid actor = Actor;
         if (await store.ExisteObligado(Tenant, cancellationToken))
         {
             throw new BillingConflictException("El tenant ya tiene un obligado registrado.");
@@ -43,13 +46,14 @@ public sealed class BillingService(ICurrentUser currentUser, IBillingStore store
         ObligadoTributario obligado = new(Tenant, request.Rtn, request.RazonSocial, request.Cai,
             request.Prefijo, request.RangoDesde, request.RangoHasta, request.FechaLimiteEmision);
         await store.AgregarObligado(obligado, cancellationToken);
-        await audit.Registrar(Tenant, Actor, "obligado.creado", obligado.Id, cancellationToken);
+        await audit.Registrar(Tenant, actor, "obligado.creado", obligado.Id, cancellationToken);
         return obligado;
     }
 
     public async Task<Cliente> CrearCliente(NuevoCliente request, CancellationToken cancellationToken)
     {
         Requerir(SecunitecRoles.Admin, SecunitecRoles.Facturador);
+        Guid actor = Actor;
         if (!await store.ExisteObligado(Tenant, cancellationToken))
         {
             throw new BillingRuleException("Registre primero al obligado tributario.");
@@ -57,13 +61,14 @@ public sealed class BillingService(ICurrentUser currentUser, IBillingStore store
 
         Cliente cliente = new(Guid.NewGuid(), Tenant, request.Nombre, request.Rtn, request.Email);
         await store.AgregarCliente(cliente, cancellationToken);
-        await audit.Registrar(Tenant, Actor, "cliente.creado", cliente.Id, cancellationToken);
+        await audit.Registrar(Tenant, actor, "cliente.creado", cliente.Id, cancellationToken);
         return cliente;
     }
 
     public async Task<Factura> CrearFactura(NuevaFactura request, CancellationToken cancellationToken)
     {
         Requerir(SecunitecRoles.Admin, SecunitecRoles.Facturador);
+        Guid actor = Actor;
         if (request.Lineas is null || request.Lineas.Count == 0 || request.Lineas.Count > 100)
         {
             throw new BillingRuleException("La factura debe tener entre 1 y 100 líneas.");
@@ -73,31 +78,33 @@ public sealed class BillingService(ICurrentUser currentUser, IBillingStore store
             throw new BillingRuleException("El cliente no pertenece a este obligado.");
         }
 
-        Factura factura = new(Guid.NewGuid(), Tenant, request.ClienteId, Actor,
+        Factura factura = new(Guid.NewGuid(), Tenant, request.ClienteId, actor,
             request.Lineas.Select(x => new LineaFactura(x.Descripcion, x.Cantidad, x.PrecioUnitario, x.Exento)).ToArray());
         await store.AgregarFactura(factura, cancellationToken);
         await cache.Invalidar(Tenant, cancellationToken);
-        await audit.Registrar(Tenant, Actor, "factura.creada", factura.Id, cancellationToken);
+        await audit.Registrar(Tenant, actor, "factura.creada", factura.Id, cancellationToken);
         return factura;
     }
 
     public async Task<Factura> Emitir(Guid id, DateOnly hoy, CancellationToken cancellationToken)
     {
         Requerir(SecunitecRoles.Admin, SecunitecRoles.Facturador);
+        Guid actor = Actor;
         Factura factura = await store.Emitir(Tenant, id, hoy, cancellationToken)
             ?? throw new KeyNotFoundException("Factura no encontrada.");
         await cache.Invalidar(Tenant, cancellationToken);
-        await audit.Registrar(Tenant, Actor, "factura.emitida", factura.Id, cancellationToken);
+        await audit.Registrar(Tenant, actor, "factura.emitida", factura.Id, cancellationToken);
         return factura;
     }
 
     public async Task<Factura> Anular(Guid id, CancellationToken cancellationToken)
     {
         Requerir(SecunitecRoles.Admin, SecunitecRoles.Facturador);
+        Guid actor = Actor;
         Factura factura = await store.Anular(Tenant, id, cancellationToken)
             ?? throw new KeyNotFoundException("Factura no encontrada.");
         await cache.Invalidar(Tenant, cancellationToken);
-        await audit.Registrar(Tenant, Actor, "factura.anulada", factura.Id, cancellationToken);
+        await audit.Registrar(Tenant, actor, "factura.anulada", factura.Id, cancellationToken);
         return factura;
     }
 

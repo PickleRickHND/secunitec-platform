@@ -62,16 +62,49 @@ public sealed class BillingServiceTests
         Assert.Single(store.Obligados);
     }
 
+    // Regresión: con un token sin sub GUID (p. ej. client credentials con sub = client_id), Billing guardaba el
+    // cliente o emitía la factura y recién después fallaba al auditar: respondía 403 con el cambio ya hecho.
+    [Fact]
+    public async Task CrearCliente_TokenSinUsuario_RechazaSinEscribir()
+    {
+        FakeStore store = new();
+        Guid tenant = Guid.NewGuid();
+        store.Obligados[tenant] = CrearObligado(tenant);
+        BillingService service = Servicio(store, new FakeUser(tenant, SecunitecRoles.Facturador, withUser: false));
+
+        await Assert.ThrowsAsync<BillingAccessException>(() => service.CrearCliente(
+            new NuevoCliente("Cliente", null, null), TestContext.Current.CancellationToken));
+        Assert.Empty(store.Clientes);
+    }
+
+    [Fact]
+    public async Task Emitir_TokenSinUsuario_RechazaSinEmitir()
+    {
+        FakeStore store = new();
+        Guid tenant = Guid.NewGuid();
+        store.Obligados[tenant] = CrearObligado(tenant);
+        Factura borrador = new(Guid.NewGuid(), tenant, Guid.NewGuid(), Guid.NewGuid(), [new LineaFactura("x", 1, 1, false)]);
+        store.Facturas.Add(borrador);
+        BillingService service = Servicio(store, new FakeUser(tenant, SecunitecRoles.Facturador, withUser: false));
+
+        await Assert.ThrowsAsync<BillingAccessException>(() => service.Emitir(
+            borrador.Id, new DateOnly(2026, 9, 22), TestContext.Current.CancellationToken));
+        Assert.Equal(EstadoFactura.Borrador, borrador.Estado);
+        Assert.Null(borrador.Numero);
+    }
+
     private static ObligadoTributario CrearObligado(Guid id) => new(id, "08011999123456", "Empresa",
         "AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FF", "000-001-01", 1, 10, new DateOnly(2026, 12, 31));
 
     private static BillingService Servicio(FakeStore store, FakeUser user) =>
         new(user, store, new FakeAudit(), new FakeCache());
 
-    private sealed class FakeUser(Guid tenantId, string assignedRole, Guid? clienteId = null) : ICurrentUser
+    private sealed class FakeUser(Guid tenantId, string assignedRole, Guid? clienteId = null, bool withUser = true) : ICurrentUser
     {
+        private readonly Guid? _userId = withUser ? Guid.NewGuid() : null;
+
         public bool IsAuthenticated => true;
-        public Guid? UserId => Guid.NewGuid();
+        public Guid? UserId => _userId;
         public Guid? TenantId => tenantId;
         public Guid? ClienteId => clienteId;
         public string? ClientId => null;
