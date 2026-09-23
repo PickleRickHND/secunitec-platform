@@ -196,10 +196,11 @@ public sealed class GatewayContractTests : IClassFixture<GatewayFactory>
     [Fact]
     public async Task Cors_PaginasDeCuenta_NoAdmitenOtroOrigen()
     {
-        // /account es navegación de página completa: no necesita CORS y no lo declara.
+        // /account es navegación de página completa: no necesita CORS y no lo declara. Ruta propia: sin CorsPolicy el
+        // preflight se reenvía al backend y contaría como visita en las rutas que miden otros tests.
         using HttpClient client = Client(NewIp());
 
-        using HttpResponseMessage preflight = await client.SendAsync(Preflight("/account/login", GatewayFactory.SpaOrigin), Ct);
+        using HttpResponseMessage preflight = await client.SendAsync(Preflight("/account/preflight-sin-cors", GatewayFactory.SpaOrigin), Ct);
 
         Assert.False(preflight.Headers.Contains("Access-Control-Allow-Origin"));
     }
