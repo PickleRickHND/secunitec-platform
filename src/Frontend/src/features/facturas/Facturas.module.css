@@ -142,6 +142,31 @@
 .acciones {
   display: grid;
   gap: var(--space-4);
+  /* El ancho lo fija la columna, no el contenido: la fila de campos de "Agregar línea" la ensanchaba y la página se
+     desbordaba a la derecha. */
+  container-type: inline-size;
+}
+
+/* Campos de "Agregar línea" según el ancho de la columna: en fila a lo ancho, en dos columnas como en móvil y uno
+   debajo del otro en la columna lateral de 18rem, donde las etiquetas no caben lado a lado. */
+@container (max-width: 36rem) {
+  .linea {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .linea > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@container (max-width: 20rem) {
+  .linea {
+    grid-template-columns: 1fr;
+  }
+
+  .linea > span:empty {
+    display: none;
+  }
 }
 
 .motivo {
