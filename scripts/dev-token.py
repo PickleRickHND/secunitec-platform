@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JWT HS256 exclusivo de Development para probar Billing antes de Identity."""
+"""JWT HS256 exclusivo de Development para probar Billing aislado con `dotnet run` (el compose no usa este modo)."""
 import argparse
 import base64
 import hashlib
@@ -22,7 +22,7 @@ parser.add_argument("--user", type=uuid.UUID, default=uuid.uuid4())
 args = parser.parse_args()
 key = os.environ.get("BILLING_TEST_JWT_KEY", "")
 if len(key.encode()) < 32:
-    parser.error("Defina BILLING_TEST_JWT_KEY (mínimo 32 bytes), igual al .env de Compose")
+    parser.error("Defina BILLING_TEST_JWT_KEY (mínimo 32 bytes), la misma clave que Billing__TestJwtKey de dotnet run")
 if args.role == "Cliente" and args.cliente is None:
     parser.error("El rol Cliente requiere --cliente")
 
