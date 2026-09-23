@@ -24,6 +24,8 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ADMIN_PASSWORD:?Configurar MONGO_ADMIN_PASSWORD}
       MONGO_BILLING_PASSWORD: ${MONGO_BILLING_PASSWORD:?Configurar MONGO_BILLING_PASSWORD}
       MONGO_IDENTITY_PASSWORD: ${MONGO_IDENTITY_PASSWORD:?Configurar MONGO_IDENTITY_PASSWORD}
+      # Por defecto, el mismo valor que trae la imagen oficial. Si mongod no arranca por el kernel
+      # (SERVER-121912), definir MONGO_GLIBC_TUNABLES en .env: ver docs/problemas-conocidos.md.
       GLIBC_TUNABLES: ${MONGO_GLIBC_TUNABLES:-glibc.pthread.rseq=0}
     volumes:
       - mongo_data:/data/db
@@ -59,7 +61,8 @@ services:
       ASPNETCORE_HTTP_PORTS: 8080
       ConnectionStrings__Identity: Host=postgres;Database=secunitec_identity;Username=identity_app;Password=${IDENTITY_DB_PASSWORD};Include Error Detail=false
       Mongo__ConnectionString: mongodb://identity_audit:${MONGO_IDENTITY_PASSWORD}@mongo:27017/secunitec_audit?authSource=secunitec_audit
-      Identity__Issuer: http://identity:8080/
+      # Issuer público: la URL del gateway que usan el navegador y JMeter (sin barra final en .env).
+      Identity__Issuer: ${SECUNITEC_PUBLIC_URL:-https://localhost:8080}/
       Identity__RegistrationTenantId: ${IDENTITY_REGISTRATION_TENANT_ID:?Configurar IDENTITY_REGISTRATION_TENANT_ID}
       Identity__SeedAdminEmail: ${IDENTITY_SEED_ADMIN_EMAIL:?Configurar IDENTITY_SEED_ADMIN_EMAIL}
       Identity__SeedAdminPassword: ${IDENTITY_SEED_ADMIN_PASSWORD:?Configurar IDENTITY_SEED_ADMIN_PASSWORD}
@@ -84,7 +87,9 @@ services:
       ConnectionStrings__Billing: Host=postgres;Database=secunitec_billing;Username=billing_app;Password=${BILLING_DB_PASSWORD};Include Error Detail=false
       Mongo__ConnectionString: mongodb://billing_audit:${MONGO_BILLING_PASSWORD}@mongo:27017/secunitec_audit?authSource=secunitec_audit
       Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD},abortConnect=false
-      Jwt__Authority: http://identity:8080
+      # Valida el issuer público y descarga el JWKS de Identity por la red interna.
+      Jwt__Authority: ${SECUNITEC_PUBLIC_URL:-https://localhost:8080}/
+      Jwt__InternalAuthority: http://identity:8080/
       Billing__TestJwtKey: ${BILLING_TEST_JWT_KEY:-}
     depends_on:
       postgres:
@@ -102,8 +107,12 @@ services:
       dockerfile: src/Gateway/Secunitec.Gateway/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_HTTP_PORTS: 8080
-      Jwt__Authority: http://identity:8080
+      # TB0: el TLS termina en el gateway con el certificado de desarrollo (scripts/dev-cert.sh).
+      ASPNETCORE_URLS: https://+:8443
+      ASPNETCORE_Kestrel__Certificates__Default__Path: /https/gateway.pem
+      ASPNETCORE_Kestrel__Certificates__Default__KeyPath: /https/gateway.key
+      Jwt__Authority: ${SECUNITEC_PUBLIC_URL:-https://localhost:8080}/
+      Jwt__InternalAuthority: http://identity:8080/
       Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD},abortConnect=false
     depends_on:
       identity:
@@ -112,9 +121,12 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+    volumes:
+      - ./infra/certs:/https:ro
+    # Única entrada publicada en el host (R01). data: los contadores del rate limiting viven en Redis.
     networks: [edge, backend, data]
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8080:8443"
 
 networks:
   edge: {}

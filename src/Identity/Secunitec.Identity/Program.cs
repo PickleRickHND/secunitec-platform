@@ -109,9 +109,11 @@ builder.Services
         options.AddDevelopmentSigningCertificate()
                .AddDevelopmentEncryptionCertificate();
 
+        // Issuer público (la URL del gateway que ve el navegador): el discovery anuncia endpoints alcanzables
+        // desde afuera. Billing y el Gateway descargan el JWKS por la red interna (InternalAuthorityHandler).
         options.SetIssuer(new Uri(
             builder.Configuration["Identity:Issuer"]
-            ?? "http://identity:8080/"));
+            ?? throw new InvalidOperationException("Configure Identity:Issuer con la URL pública del gateway.")));
 
         if (builder.Environment.IsDevelopment())
         {

@@ -2,13 +2,13 @@
 // R02: rate limiting L7 con contadores en Redis antes de que la petición llegue a un servicio interno.
 // R04: solo las rutas del protocolo OIDC son anónimas; el resto exige un token con tenant_id.
 // R06: sin Server ni X-Powered-By, ni del gateway ni de las respuestas reenviadas.
+// TB0: el TLS termina aquí (certificado de desarrollo montado por el compose; ver scripts/dev-cert.sh).
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
 using Secunitec.BuildingBlocks.AspNetCore.Hosting;
 using Secunitec.BuildingBlocks.AspNetCore.Http;
+using Secunitec.BuildingBlocks.AspNetCore.Security;
 using Secunitec.BuildingBlocks.Http;
-using Secunitec.BuildingBlocks.Security;
 using Secunitec.Gateway;
 using StackExchange.Redis;
 using Yarp.ReverseProxy.Transforms;
@@ -20,22 +20,10 @@ builder.Services.AddSecunitecDefaults();
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.MapInboundClaims = false;
-        options.Authority = builder.Configuration["Jwt:Authority"]
-            ?? throw new InvalidOperationException("Configure Jwt:Authority.");
-        options.Audience = SecunitecAudiences.Billing;
-        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            NameClaimType = SecunitecClaims.Name,
-            RoleClaimType = SecunitecClaims.Role,
-        };
-    });
+    .AddJwtBearer(options => options.UseSecunitecIdentity(builder.Configuration, builder.Environment));
+
+// §4: HSTS en las respuestas HTTPS. UseHsts excluye localhost: ahí fijaría HTTPS en todos los puertos de la máquina.
+builder.Services.AddHsts(options => options.MaxAge = TimeSpan.FromDays(180));
 
 // abortConnect=false: si Redis no está disponible al arrancar, el gateway arranca igual y limita en memoria.
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp => ConnectionMultiplexer.Connect(
@@ -62,6 +50,7 @@ builder.Services
 WebApplication app = builder.Build();
 
 app.UseSecunitecDefaults();
+app.UseHsts();
 app.UseAuthentication();
 // R02: después de autenticar (para particionar por sub) y antes de autorizar, para que las ráfagas con tokens
 // inválidos también se limiten por IP en vez de pasar directo al 401.

@@ -4,6 +4,10 @@
 !.env.example
 *.pem
 *.pfx
+*.key
+# Certificado de desarrollo del gateway (scripts/dev-cert.sh)
+infra/certs/*
+!infra/certs/.gitkeep
 
 # .NET
 bin/

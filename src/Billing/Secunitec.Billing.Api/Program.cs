@@ -7,6 +7,7 @@ using Secunitec.Billing.Api;
 using Secunitec.Billing.Application;
 using Secunitec.Billing.Infrastructure;
 using Secunitec.BuildingBlocks.AspNetCore.Hosting;
+using Secunitec.BuildingBlocks.AspNetCore.Security;
 using Secunitec.BuildingBlocks.Security;
 using StackExchange.Redis;
 
@@ -51,18 +52,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     }
     else
     {
-        options.Authority = builder.Configuration["Jwt:Authority"]
-            ?? throw new InvalidOperationException("Configure Jwt:Authority.");
-        options.Audience = SecunitecAudiences.Billing;
-        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            NameClaimType = SecunitecClaims.Name,
-            RoleClaimType = SecunitecClaims.Role
-        };
+        options.UseSecunitecIdentity(builder.Configuration, builder.Environment);
     }
 });
 
