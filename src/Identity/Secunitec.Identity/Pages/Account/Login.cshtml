@@ -3,19 +3,29 @@
 @{
     ViewData["Title"] = "Iniciar sesión";
 }
-<h2>Iniciar sesión</h2>
-@if (Model.Registered)
-{
-    <p>Si la cuenta se pudo crear, ya puede iniciar sesión.</p>
-}
-@if (Model.Error is not null)
-{
-    <p role="alert">@Model.Error</p>
-}
-<form method="post">
-    <input type="hidden" asp-for="ReturnUrl">
-    <p><label>Correo <input asp-for="Email" type="email" autocomplete="username" required></label></p>
-    <p><label>Contraseña <input asp-for="Password" type="password" autocomplete="current-password" required></label></p>
-    <p><button type="submit">Entrar</button></p>
-</form>
-<p><a asp-page="/Account/Register">Crear una cuenta</a></p>
+<section class="card" aria-labelledby="titulo">
+    <h1 id="titulo">Iniciar sesión</h1>
+    <p class="lead">Use el correo y la contraseña de su cuenta de Secunitec.</p>
+    @if (Model.Registered)
+    {
+        <p class="notice">Si la cuenta se pudo crear, ya puede iniciar sesión. Un administrador debe asignarle un rol antes de que pueda facturar o consultar.</p>
+    }
+    @if (Model.Error is not null)
+    {
+        <p class="alert" role="alert" id="error-login">@Model.Error</p>
+    }
+    <form method="post" class="form">
+        <input type="hidden" asp-for="ReturnUrl">
+        <div class="field">
+            <label asp-for="Email">Correo</label>
+            <input asp-for="Email" type="email" autocomplete="username" required autofocus>
+        </div>
+        <div class="field">
+            <label asp-for="Password">Contraseña</label>
+            <input asp-for="Password" type="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="button">Iniciar sesión</button>
+    </form>
+    <p class="aside">¿Aún no tiene cuenta? <a asp-page="/Account/Register">Crear una cuenta</a></p>
+</section>
+<p class="footnote">Después de cinco intentos fallidos la cuenta se bloquea 15 minutos. Cada intento queda registrado en la auditoría.</p>

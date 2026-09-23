@@ -1,11 +1,15 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using OpenIddict.Abstractions;
 using Secunitec.BuildingBlocks.Security;
 
 namespace Secunitec.Identity.Tests;
@@ -83,6 +87,9 @@ public sealed partial class IdentityTests : IClassFixture<IdentityFactory>
         Assert.False(audit["success"].AsBoolean);
         // La IP es la del cliente (X-Forwarded-For del gateway), no la del gateway.
         Assert.Equal("203.0.113.9", audit["ip"].AsString);
+        // Billing lee estos eventos para la pantalla de auditoría: fecha BSON (ordenable y filtrable) y tenant UUID.
+        Assert.Equal(BsonType.DateTime, audit["timestamp"].BsonType);
+        Assert.Equal(IdentityFactory.TenantId, audit["tenantId"].AsGuid);
     }
 
     [Fact]
@@ -128,9 +135,9 @@ public sealed partial class IdentityTests : IClassFixture<IdentityFactory>
     }
 
     [Theory]
-    [InlineData("/\\evil.example", "/")]
-    [InlineData("//evil.example", "/")]
-    [InlineData("https://evil.example/", "/")]
+    [InlineData("/\\evil.example", "http://localhost:3000/")]
+    [InlineData("//evil.example", "http://localhost:3000/")]
+    [InlineData("https://evil.example/", "http://localhost:3000/")]
     [InlineData("/connect/authorize?client_id=spa-secunitec", "/connect/authorize?client_id=spa-secunitec")]
     public async Task Login_Exitoso_SoloRedirigeAUrlsLocales(string returnUrl, string expectedLocation)
     {
@@ -178,6 +185,138 @@ public sealed partial class IdentityTests : IClassFixture<IdentityFactory>
         ApplicationUser user = await users.FindByEmailAsync(email) ?? throw new InvalidOperationException("No se creó.");
         Assert.Empty(await users.GetRolesAsync(user));
     }
+
+    [Fact]
+    public async Task Discovery_AnunciaElCierreDeSesion()
+    {
+        SkipWithoutDocker();
+        using HttpClient client = _factory.CreateHttpsClient();
+
+        using JsonDocument discovery = JsonDocument.Parse(await client.GetStringAsync("/.well-known/openid-configuration", Ct));
+
+        Assert.Equal(IdentityFactory.Issuer + "connect/endsession", discovery.RootElement.GetProperty("end_session_endpoint").GetString());
+    }
+
+    [Fact]
+    public async Task CodigoPkce_DelSpa_EmiteIdTokenConRolYTenant()
+    {
+        SkipWithoutDocker();
+        string email = await CreateUserAsync();
+        using HttpClient client = _factory.CreateHttpsClient();
+        using HttpResponseMessage login = await PostLoginAsync(client, email, UserPassword, "/");
+        Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
+
+        string verifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+        string challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
+        using HttpResponseMessage authorize = await client.GetAsync(
+            "/connect/authorize?client_id=spa-secunitec&response_type=code&state=estado-1" +
+            "&redirect_uri=" + Uri.EscapeDataString(SpaCallback) +
+            "&scope=" + Uri.EscapeDataString("openid profile email roles offline_access secunitec-billing") +
+            "&code_challenge=" + challenge + "&code_challenge_method=S256", Ct);
+
+        Assert.Equal(HttpStatusCode.Redirect, authorize.StatusCode);
+        Uri callback = authorize.Headers.Location ?? throw new InvalidOperationException("Sin redirección.");
+        Assert.StartsWith(SpaCallback, callback.ToString(), StringComparison.Ordinal);
+        string code = QueryValue(callback, "code");
+
+        using HttpResponseMessage token = await client.PostAsync("/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "authorization_code",
+            ["client_id"] = IdentitySeeder.SpaClientId,
+            ["code"] = code,
+            ["redirect_uri"] = SpaCallback,
+            ["code_verifier"] = verifier,
+        }), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, token.StatusCode);
+        using JsonDocument body = JsonDocument.Parse(await token.Content.ReadAsStringAsync(Ct));
+        Assert.True(body.RootElement.TryGetProperty("refresh_token", out _));
+        JsonWebToken idToken = new(body.RootElement.GetProperty("id_token").GetString());
+        Assert.Equal(SecunitecRoles.Facturador, idToken.GetClaim(SecunitecClaims.Role).Value);
+        Assert.Equal(IdentityFactory.TenantId.ToString(), idToken.GetClaim(SecunitecClaims.TenantId).Value);
+        JsonWebToken accessToken = new(body.RootElement.GetProperty("access_token").GetString());
+        Assert.Contains(SecunitecAudiences.Billing, accessToken.Audiences);
+    }
+
+    [Fact]
+    public async Task Authorize_PromptNoneSinSesion_DevuelveLoginRequired()
+    {
+        SkipWithoutDocker();
+        using HttpClient client = _factory.CreateHttpsClient();
+        string challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(Base64Url(RandomNumberGenerator.GetBytes(32)))));
+
+        using HttpResponseMessage authorize = await client.GetAsync(
+            "/connect/authorize?client_id=spa-secunitec&response_type=code&scope=openid&prompt=none&state=s" +
+            "&redirect_uri=" + Uri.EscapeDataString(SpaCallback) + "&code_challenge=" + challenge + "&code_challenge_method=S256", Ct);
+
+        Assert.Equal(HttpStatusCode.Redirect, authorize.StatusCode);
+        Assert.Equal("login_required", QueryValue(authorize.Headers.Location!, "error"));
+    }
+
+    [Fact]
+    public async Task CierreDeSesion_BorraLaCookieYVuelveAlSpa()
+    {
+        SkipWithoutDocker();
+        string email = await CreateUserAsync();
+        using HttpClient client = _factory.CreateHttpsClient();
+        using HttpResponseMessage login = await PostLoginAsync(client, email, UserPassword, "/");
+
+        using HttpResponseMessage endSession = await client.GetAsync(
+            "/connect/endsession?client_id=spa-secunitec&post_logout_redirect_uri=" + Uri.EscapeDataString(SpaLogoutCallback), Ct);
+
+        Assert.Equal(HttpStatusCode.Redirect, endSession.StatusCode);
+        Assert.Equal(SpaLogoutCallback, endSession.Headers.Location?.GetLeftPart(UriPartial.Path));
+        string cookie = endSession.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("__Host-Secunitec.Identity=", StringComparison.Ordinal));
+        Assert.Contains("expires=Thu, 01 Jan 1970", cookie, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Seeder_SincronizaUnClienteSpaCreadoAntesDeLaEtapa4()
+    {
+        SkipWithoutDocker();
+        await using AsyncServiceScope scope = _factory.Services.CreateAsyncScope();
+        IOpenIddictApplicationManager applications = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+        IConfiguration configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+
+        // Simula el cliente de una base de la etapa 3: sin cierre de sesión ni URI de vuelta.
+        OpenIddictApplicationDescriptor viejo = IdentitySeeder.SpaDescriptor(configuration);
+        viejo.PostLogoutRedirectUris.Clear();
+        viejo.Permissions.Remove(OpenIddictConstants.Permissions.Endpoints.EndSession);
+        await applications.UpdateAsync(await applications.FindByClientIdAsync(IdentitySeeder.SpaClientId, Ct) ?? throw new InvalidOperationException(), viejo, Ct);
+
+        await IdentitySeeder.SeedAsync(_factory.Services, configuration);
+
+        // Otro scope: el DbContext de este conserva la entidad vieja en su change tracker.
+        await using AsyncServiceScope check = _factory.Services.CreateAsyncScope();
+        IOpenIddictApplicationManager fresh = check.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+        object spa = await fresh.FindByClientIdAsync(IdentitySeeder.SpaClientId, Ct) ?? throw new InvalidOperationException();
+        Assert.Contains(OpenIddictConstants.Permissions.Endpoints.EndSession, await fresh.GetPermissionsAsync(spa, Ct));
+        Assert.Contains(SpaLogoutCallback, await fresh.GetPostLogoutRedirectUrisAsync(spa, Ct));
+    }
+
+    [Fact]
+    public async Task EstilosDeCuenta_SonPublicosYConservanLaCspDeIdentity()
+    {
+        SkipWithoutDocker();
+        using HttpClient client = _factory.CreateHttpsClient();
+
+        using HttpResponseMessage css = await client.GetAsync("/account/assets/identity.css", Ct);
+        using HttpResponseMessage page = await client.GetAsync("/account/login", Ct);
+
+        Assert.Equal(HttpStatusCode.OK, css.StatusCode);
+        Assert.Equal("text/css", css.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("href=\"/account/assets/identity.css\"", await page.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+        Assert.StartsWith("default-src 'self'", page.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
+    }
+
+    private const string SpaCallback = "http://localhost:3000/auth/callback";
+    private const string SpaLogoutCallback = "http://localhost:3000/auth/logout-callback";
+
+    private static string Base64Url(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static string QueryValue(Uri uri, string name) =>
+        System.Web.HttpUtility.ParseQueryString(uri.Query)[name] ?? throw new InvalidOperationException($"Falta {name} en {uri}.");
 
     private const int StatusCodes423 = 423;
 

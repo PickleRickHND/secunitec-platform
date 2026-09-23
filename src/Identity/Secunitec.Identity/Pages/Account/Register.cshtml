@@ -3,19 +3,31 @@
 @{
     ViewData["Title"] = "Crear cuenta";
 }
-<h2>Crear cuenta</h2>
-@if (Model.Errors.Count > 0)
-{
-    <ul role="alert">
-        @foreach (string error in Model.Errors)
-        {
-            <li>@error</li>
-        }
-    </ul>
-}
-<form method="post">
-    <p><label>Correo <input asp-for="Email" type="email" autocomplete="username" required></label></p>
-    <p><label>Contraseña <input asp-for="Password" type="password" autocomplete="new-password" required></label></p>
-    <p><button type="submit">Crear cuenta</button></p>
-</form>
-<p><a asp-page="/Account/Login">Ya tengo cuenta</a></p>
+<section class="card" aria-labelledby="titulo">
+    <h1 id="titulo">Crear cuenta</h1>
+    <p class="lead">La cuenta queda sin rol hasta que un administrador de su empresa le asigne uno.</p>
+    @if (Model.Errors.Count > 0)
+    {
+        <div class="alert" role="alert">
+            <ul>
+                @foreach (string error in Model.Errors)
+                {
+                    <li>@error</li>
+                }
+            </ul>
+        </div>
+    }
+    <form method="post" class="form">
+        <div class="field">
+            <label asp-for="Email">Correo</label>
+            <input asp-for="Email" type="email" autocomplete="username" required autofocus>
+        </div>
+        <div class="field">
+            <label asp-for="Password">Contraseña</label>
+            <input asp-for="Password" type="password" autocomplete="new-password" required aria-describedby="ayuda-password">
+            <p class="field__hint" id="ayuda-password">Mínimo 12 caracteres, con mayúscula, minúscula, número y símbolo.</p>
+        </div>
+        <button type="submit" class="button">Crear cuenta</button>
+    </form>
+    <p class="aside">¿Ya tiene cuenta? <a asp-page="/Account/Login">Iniciar sesión</a></p>
+</section>

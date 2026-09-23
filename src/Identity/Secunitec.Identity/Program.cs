@@ -3,6 +3,7 @@
 // A07: lockout tras 5 intentos, contraseñas robustas, login y registro auditados.
 
 using System.Security.Cryptography.X509Certificates;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -84,6 +85,14 @@ builder.Services
         options.LoginPath = "/account/login";
     });
 
+// Llaves de Data Protection (cookies de sesión y antiforgery) en un volumen: sin esto, cada reinicio del contenedor
+// (read_only, etapa 4.2) invalidaba las sesiones abiertas. Sin ruta configurada se usa el almacén por defecto.
+IDataProtectionBuilder dataProtection = builder.Services.AddDataProtection().SetApplicationName("Secunitec.Identity");
+if (builder.Configuration["DataProtection:KeysPath"] is { Length: > 0 } keysPath)
+{
+    dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+}
+
 builder.Services.AddAntiforgery(options =>
 {
     options.Cookie.Name = "__Host-Secunitec.Antiforgery";
@@ -111,7 +120,8 @@ builder.Services
     .AddServer(options =>
     {
         options.SetAuthorizationEndpointUris("connect/authorize")
-               .SetTokenEndpointUris("connect/token");
+               .SetTokenEndpointUris("connect/token")
+               .SetEndSessionEndpointUris("connect/endsession");
 
         options.AllowAuthorizationCodeFlow()
                .AllowRefreshTokenFlow()
@@ -138,6 +148,7 @@ builder.Services
         options.UseAspNetCore()
                .EnableAuthorizationEndpointPassthrough()
                .EnableTokenEndpointPassthrough()
+               .EnableEndSessionEndpointPassthrough()
                // El TLS termina en el gateway (TB0) y Billing y el Gateway leen discovery y JWKS por la red
                // interna (TB1), sin TLS.
                .DisableTransportSecurityRequirement();
@@ -153,6 +164,9 @@ WebApplication app = builder.Build();
 
 app.UseForwardedHeaders();
 app.UseSecunitecDefaults();
+// Estilos y fuentes de las páginas de cuenta (/account/assets, la ruta que el gateway ya reenvía). Van antes de la
+// autenticación: son públicos y no deben pasar por la FallbackPolicy (R04).
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -165,11 +179,12 @@ app.MapGet("/", () => Results.Redirect("/account/login")).AllowAnonymous();
 
 await app.RunAsync();
 
-// Development usa llaves efímeras en memoria: cambian al reiniciar y no tocan el almacén de certificados del
-// equipo. Fuera de Development se exigen certificados PEM configurados.
+// Fuera de Development se exigen certificados PEM. En Development se usan los PEM de scripts/dev-cert.sh si existen
+// (los tokens y refresh tokens sobreviven a un reinicio) y, si no, llaves efímeras en memoria, que no tocan el
+// almacén de certificados del equipo (docs/problemas-conocidos.md §6).
 static void AddCredentials(OpenIddictServerBuilder options, IConfiguration configuration, IWebHostEnvironment environment)
 {
-    if (environment.IsDevelopment())
+    if (environment.IsDevelopment() && !File.Exists(configuration["Identity:SigningCertificate:Path"] ?? ""))
     {
         options.AddEphemeralSigningKey().AddEphemeralEncryptionKey();
         return;

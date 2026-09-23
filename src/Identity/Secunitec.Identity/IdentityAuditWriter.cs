@@ -66,7 +66,10 @@ public sealed class IdentityAuditEvent
     [BsonRepresentation(BsonType.ObjectId)]
     public string? Id { get; set; }
 
+    // Fecha BSON (UTC): el serializador por defecto de DateTimeOffset guarda un documento, que Mongo no puede ordenar
+    // ni filtrar por rango (la pantalla de auditoría de Billing lee estos eventos).
     [BsonElement("timestamp")]
+    [BsonRepresentation(BsonType.DateTime)]
     public DateTimeOffset Timestamp { get; set; }
 
     [BsonElement("action")]
