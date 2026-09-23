@@ -1,9 +1,9 @@
 // R03: Identity implementa OAuth 2.0 / OIDC, emisiÃ³n de JWT y endpoints del proveedor.
 // R04: el acceso se mantiene deny-by-default y solo los endpoints del protocolo permiten anonimato explÃ­cito.
 
-using Microsoft.AspNetCore;
 using System.Net;
 using System.Security.Claims;
+using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
@@ -115,7 +115,7 @@ builder.Services
 
         if (builder.Environment.IsDevelopment())
         {
-        options.UseAspNetCore().DisableTransportSecurityRequirement();
+            options.UseAspNetCore().DisableTransportSecurityRequirement();
         }
 
         var aspNetCore = options.UseAspNetCore()

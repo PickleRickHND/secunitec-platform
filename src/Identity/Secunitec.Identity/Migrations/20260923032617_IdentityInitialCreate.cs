@@ -1,4 +1,4 @@
-﻿#pragma warning disable IDE0005, IDE0161, CA1861
+#pragma warning disable IDE0005, IDE0161, CA1861
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
