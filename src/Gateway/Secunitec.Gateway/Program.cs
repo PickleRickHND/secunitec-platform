@@ -13,6 +13,7 @@ using Secunitec.BuildingBlocks.AspNetCore.Security;
 using Secunitec.BuildingBlocks.Http;
 using Secunitec.Gateway;
 using StackExchange.Redis;
+using Yarp.ReverseProxy.Forwarder;
 using Yarp.ReverseProxy.Transforms;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -41,6 +42,8 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp => ConnectionMultiplexe
 builder.Services.AddSecunitecRateLimiting(builder.Configuration);
 builder.Services.AddSecunitecCors(builder.Configuration);
 
+// R18: el pool de YARP suelta las conexiones inactivas antes de que Billing e Identity las cierren (etapa 5.3).
+builder.Services.AddSingleton<IForwarderHttpClientFactory, GatewayForwarderHttpClientFactory>();
 builder.Services
     .AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
