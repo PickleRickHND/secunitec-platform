@@ -14,6 +14,10 @@ obj/
 TestResults/
 artifacts/
 
+# Script local de prueba y caché de Python
+scripts/smoke-billing.py
+__pycache__/
+
 # Node / Vite
 node_modules/
 dist/
