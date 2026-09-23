@@ -4,10 +4,10 @@ Generado por `scripts/verify-observability.sh --report`: no editar a mano. El sc
 
 | Campo | Valor |
 |---|---|
-| Fecha | 2026-09-23 16:55 UTC |
-| Commit | `dd38abf` (con cambios sin commitear) |
+| Fecha | 2026-09-23 19:46 UTC |
+| Commit | `e6fa4a8` |
 | Gateway / Grafana | https://localhost:8080 / http://localhost:3001 |
-| Resultado | **29 PASS, 0 FAIL** |
+| Resultado | **32 PASS, 0 FAIL** |
 
 ## Checklist
 
@@ -42,6 +42,9 @@ Generado por `scripts/verify-observability.sh --report`: no editar a mano. El sc
 | Logs (Loki) | Loki recibe logs de secunitec-gateway | PASS |
 | Logs (Loki) | Loki recibe logs de secunitec-identity | PASS |
 | Logs (Loki) | Loki recibe logs de secunitec-billing | PASS |
+| Logs (Loki) | Loki: el evento de auditoría de la emisión llega con su correlation id | PASS |
+| Logs (Loki) | Loki: el log lleva el trace id de su traza en Tempo | PASS |
+| Logs (Loki) | TB3: el log de auditoría no lleva IP, actor ni detalle | PASS |
 
 ## Evidencia
 
@@ -75,7 +78,7 @@ USE Overview
 ### Tráfico real a través del gateway
 
 ```console
-$ POST /api/billing/facturas (201) y POST .../766369b0-77c0-480d-9e95-9bfa9bf6fb0f/emitir con X-Correlation-Id: verify-otel-1790182475 y traceparent 00-0af7651916cd43dd8448eb211c80319c-...
+$ POST /api/billing/facturas (201) y POST .../a575fd60-c63a-443b-a2fa-440031b90361/emitir con X-Correlation-Id: verify-otel-1790192763 y traceparent 00-0af7651916cd43dd8448eb211c80319c-...
 crear 201, emitir 200
 ```
 
@@ -89,47 +92,44 @@ $ 70 × GET /api/billing/facturas con el mismo token (partición user-by-sub, 60
 
 ```console
 $ PromQL: sum(secunitec_billing_invoices_emitted_total) antes y después
-78 -> 79
+1 -> 2
 ```
 
 ```console
 $ PromQL: sum(secunitec_gateway_rate_limited_total{policy="user-by-sub"}) antes y después
-3414670 -> 3414682
+13 -> 25
 ```
 
 ```console
 $ PromQL: series de red por contenedor (cAdvisor)
 container_label_com_docker_compose_service=postgres 10
 container_label_com_docker_compose_service=redis 10
-container_label_com_docker_compose_service=gateway 24
-container_label_com_docker_compose_service=billing 22
+container_label_com_docker_compose_service=gateway 12
+container_label_com_docker_compose_service=billing 11
 ```
 
 ```console
 $ PromQL: db_client_connection_max
-service_name=secunitec-billing 50
 service_name=secunitec-identity 20
 service_name=secunitec-billing 50
-service_name=secunitec-identity 20
 ```
 
 ```console
 $ PromQL: sum by (client, server) (traces_service_graph_request_total)
-client=secunitec-gateway server=secunitec-identity 3
-client=secunitec-gateway server=secunitec-billing 2882
-client=user server=secunitec-gateway 432053
-client=secunitec-billing server=postgres 6814
-client=secunitec-billing server=mongo 557
-client=secunitec-billing server=secunitec_audit 557
+client=secunitec-gateway server=secunitec-identity 12
+client=secunitec-gateway server=secunitec-billing 63
+client=user server=secunitec-gateway 92
+client=secunitec-billing server=postgres 23
+client=secunitec-billing server=mongo 5
+client=secunitec-billing server=secunitec_audit 5
 client=secunitec-identity server=postgres 7
-client=secunitec-identity server=secunitec_audit 1
-client=secunitec-identity server=mongo 1
+client=secunitec-billing server=secunitec-identity 2
 ```
 
 ### Trazas (Tempo)
 
 ```console
-$ Tempo: traza del correlation id verify-otel-1790182475 (bee9a9211a74366b7a50bb9b0adc76a7): servicio | fuente | span | atributos
+$ Tempo: traza del correlation id verify-otel-1790192763 (5569e242b70c4b1fca69a2f8791e196f): servicio | fuente | span | atributos
 secunitec-billing | Npgsql | postgresql | db.system.name=postgresql
 secunitec-billing | Npgsql | postgresql | db.system.name=postgresql
 secunitec-billing | Npgsql | postgresql | db.system.name=postgresql
@@ -152,8 +152,13 @@ $ Tempo: GET /api/v2/traces/0af7651916cd43dd8448eb211c80319c (el trace id del cl
 ### Logs (Loki)
 
 ```console
-$ LogQL: sum by (service_name) (count_over_time({service_name=~"secunitec-.+"}[1h]))
-secunitec-billing 121
-secunitec-gateway 21
-secunitec-identity 18
+$ LogQL: sum by (service_name) (count_over_time({service_name=~"secunitec-.+"}[1192s])) (desde el arranque)
+secunitec-billing 24
+secunitec-gateway 8
+secunitec-identity 11
+```
+
+```console
+$ LogQL: {service_name="secunitec-billing"} | CorrelationId="verify-otel-1790192763" | Accion="factura.emitida"
+trace_id=5569e242b70c4b1fca69a2f8791e196f | Auditoría: factura.emitida (exito) sobre a575fd60-c63a-443b-a2fa-440031b90361.
 ```
